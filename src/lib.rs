@@ -6,6 +6,7 @@ use std::{
 };
 
 use eframe::CreationContext;
+use egui::ScrollArea;
 use log::info;
 
 use crate::pass::{PassEntry, PassRepository};
@@ -84,26 +85,17 @@ impl eframe::App for App {
         });
 
         let last_match = self.last_match.read().expect("last match is poisoned!");
-        last_match.iter().for_each(|entry| {
-            ui.horizontal(|ui| {
+        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            last_match.iter().for_each(|entry| {
                 // TODO: color on click
-                if ui.small_button("usr:pwd").clicked() {
+                if ui.selectable_label(false, entry.to_string()).clicked() {
                     let repository = self.repository.read().expect("repository is poisoned!");
-                    if let Some(data) = repository.retrieve(entry) {
+                    if let Ok(data) = repository.retrieve(entry) {
                         ui.copy_text(format!("{}:{}", data.0, data.1));
                     } else {
                         todo!("show notification")
                     }
                 }
-                if ui.small_button("pwd").clicked() {
-                    let repository = self.repository.read().expect("repository is poisoned!");
-                    if let Some(data) = repository.retrieve(entry) {
-                        ui.copy_text(data.1);
-                    } else {
-                        todo!("show notification")
-                    }
-                }
-                ui.label(entry.to_string());
             });
         });
     }

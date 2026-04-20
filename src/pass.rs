@@ -1,7 +1,7 @@
 use std::{
     env,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 use anyhow::Context;
@@ -36,30 +36,14 @@ impl PassRepository {
         self.entries.len()
     }
 
-    pub(crate) fn retrieve(&self, entry: &PassEntry) -> Option<(String, String)> {
-        match Command::new("pass")
+    pub(crate) fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
+        let output = Command::new("pass")
             .arg(entry.to_string())
             .output()
-            .context("cannot retrieve entry from pass")
-        {
-            Ok(output) => {
-                match str::from_utf8(&output.stdout)
-                    .context("unable to interpret output as UTF-8 string")
-                {
-                    Ok(password) => Some((entry.username(), password.trim().to_string())),
-                    Err(e) => {
-                        // TODO: make user-visible
-                        warn!("{}", e);
-                        None
-                    }
-                }
-            }
-            Err(e) => {
-                // TODO: make user-visible
-                warn!("{}", e);
-                None
-            }
-        }
+            .context("cannot retrieve entry from pass")?;
+        let password =
+            str::from_utf8(&output.stdout).context("unable to interpret output as UTF-8 string")?;
+        Ok((entry.username(), password.trim().to_string()))
     }
 
     fn enumerate_entries(base_dir: PathBuf) -> Vec<PassEntry> {
