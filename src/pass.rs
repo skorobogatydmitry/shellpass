@@ -1,4 +1,8 @@
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use walkdir::WalkDir;
@@ -6,7 +10,7 @@ use walkdir::WalkDir;
 /// # Desc
 /// GNU pass repository read-only access manager.
 pub struct PassRepository {
-    entries: Vec<String>,
+    entries: Vec<PassEntry>,
 }
 
 impl PassRepository {
@@ -19,28 +23,71 @@ impl PassRepository {
         })
     }
 
-    pub(crate) fn get_by_pattern(&self, _pattern: &str) -> Vec<String> {
-        vec![]
+    pub(crate) fn get_by_pattern(&self, pattern: &str) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter_map(|e| e.contains(pattern).then(|| e.to_string()))
+            .collect()
     }
 
     pub(crate) fn entries_count(&self) -> usize {
         self.entries.len()
     }
 
-    fn enumerate_entries(base_dir: PathBuf) -> Vec<String> {
-        WalkDir::new(base_dir)
+    fn enumerate_entries(base_dir: PathBuf) -> Vec<PassEntry> {
+        WalkDir::new(&base_dir)
             .into_iter()
-            .filter_entry(|e| {
-                e.file_type().is_dir()
-                    || e.file_name()
-                        .to_str()
-                        .map(|name| name.ends_with(".gpg"))
-                        .unwrap_or(false)
-            })
             .filter_map(|e| {
-                e.ok()
-                    .and_then(|e| e.file_name().to_str().map(|s| s.to_string()))
+                e.ok().and_then(|e| {
+                    if e.file_type().is_file()
+                        && e.file_name()
+                            .to_str()
+                            .filter(|s| s.ends_with(".gpg"))
+                            .is_some()
+                    {
+                        // UNWRAP: all paths have base_dir as prefix
+                        Some(PassEntry::from(
+                            e.into_path().strip_prefix(&base_dir).unwrap(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
             })
             .collect()
+    }
+}
+
+/// a single entry in the pass repository
+/// it reflests the path to entry within the pass repository
+pub(crate) struct PassEntry {
+    path_components: Vec<String>,
+}
+
+impl PassEntry {
+    fn contains(&self, pattern: &str) -> bool {
+        self.path_components
+            .iter()
+            .any(|component| component.contains(pattern))
+    }
+}
+
+impl From<&Path> for PassEntry {
+    fn from(value: &Path) -> Self {
+        let mut path_components = value
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<String>>();
+        path_components
+            .last_mut()
+            .map(|file_name| file_name.truncate(file_name.len() - 4));
+
+        Self { path_components }
+    }
+}
+
+impl ToString for PassEntry {
+    fn to_string(&self) -> String {
+        self.path_components.join("/")
     }
 }
