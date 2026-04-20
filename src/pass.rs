@@ -1,11 +1,10 @@
 use std::{
     env,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Command,
 };
 
 use anyhow::Context;
-use log::warn;
 use walkdir::WalkDir;
 
 /// # Desc
