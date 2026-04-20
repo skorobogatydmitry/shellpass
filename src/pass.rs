@@ -66,9 +66,7 @@ pub(crate) struct PassEntry {
 
 impl PassEntry {
     fn contains(&self, pattern: &str) -> bool {
-        self.path_components
-            .iter()
-            .any(|component| component.contains(pattern))
+        self.to_string().contains(pattern)
     }
 }
 
@@ -78,6 +76,7 @@ impl From<&Path> for PassEntry {
             .components()
             .map(|c| c.as_os_str().to_string_lossy().to_string())
             .collect::<Vec<String>>();
+        // strip extension
         path_components
             .last_mut()
             .map(|file_name| file_name.truncate(file_name.len() - 4));
