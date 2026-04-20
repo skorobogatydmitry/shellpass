@@ -11,5 +11,5 @@ fn main() -> eframe::Result {
             .with_transparent(true),
         ..Default::default()
     };
-    eframe::run_native("unused", options, Box::new(|cc| App::new(cc)))
+    eframe::run_native("unused", options, Box::new(App::new))
 }

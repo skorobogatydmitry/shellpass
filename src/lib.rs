@@ -3,13 +3,12 @@ use std::{
     ops::DerefMut,
     sync::{Arc, Condvar, Mutex, RwLock},
     thread,
-    time::Duration,
 };
 
 use eframe::CreationContext;
-use log::{info, warn};
+use log::info;
 
-use crate::pass::PassRepository;
+use crate::pass::{PassEntry, PassRepository};
 
 pub mod pass;
 
@@ -17,7 +16,7 @@ pub struct App {
     repository: Arc<RwLock<PassRepository>>,
     pattern: Arc<Mutex<String>>,
     pattern_change_fence: Arc<Condvar>,
-    last_match: Arc<RwLock<Vec<String>>>,
+    last_match: Arc<RwLock<Vec<PassEntry>>>,
 }
 
 impl App {
@@ -85,11 +84,26 @@ impl eframe::App for App {
         });
 
         let last_match = self.last_match.read().expect("last match is poisoned!");
-        last_match.iter().for_each(|s| {
+        last_match.iter().for_each(|entry| {
             ui.horizontal(|ui| {
-                ui.small_button("both");
-                ui.small_button("pwd");
-                ui.label(s);
+                // TODO: color on click
+                if ui.small_button("usr:pwd").clicked() {
+                    let repository = self.repository.read().expect("repository is poisoned!");
+                    if let Some(data) = repository.retrieve(entry) {
+                        ui.copy_text(format!("{}:{}", data.0, data.1));
+                    } else {
+                        todo!("show notification")
+                    }
+                }
+                if ui.small_button("pwd").clicked() {
+                    let repository = self.repository.read().expect("repository is poisoned!");
+                    if let Some(data) = repository.retrieve(entry) {
+                        ui.copy_text(data.1);
+                    } else {
+                        todo!("show notification")
+                    }
+                }
+                ui.label(entry.to_string());
             });
         });
     }
