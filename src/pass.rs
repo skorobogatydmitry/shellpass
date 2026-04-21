@@ -14,6 +14,8 @@ pub struct PassRepository {
 }
 
 impl PassRepository {
+    /// keep it return result for the time-being
+    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new() -> anyhow::Result<Self> {
         let pass_home = env::home_dir()
             .context("cannot get home folder")?
@@ -106,6 +108,7 @@ impl From<&Path> for PassEntry {
     }
 }
 
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for PassEntry {
     fn to_string(&self) -> String {
         self.path_components.join("/")
