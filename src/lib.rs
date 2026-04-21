@@ -51,10 +51,12 @@ impl App {
                     .expect("pattern is poisoned!");
                 let last_seen_pattern = current_pattern.clone();
 
-                let mut last_match = last_match.write().expect("last match is poisoned!");
                 // TODO: make a faster swap
                 let repository = repository.read().expect("repository is poisoned!");
                 let new_items = repository.get_by_pattern(last_seen_pattern.as_str());
+                drop(repository);
+
+                let mut last_match = last_match.write().expect("last match is poisoned!");
                 last_match.clear();
                 last_match.extend(new_items);
                 info!("found matches: {}", last_match.len());
