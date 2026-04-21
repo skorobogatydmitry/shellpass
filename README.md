@@ -1,7 +1,7 @@
-# Simple desktop client for GNU pass
+# Simple client for GNU pass
 
-## Target
-- search bar
-- copy-paste interface for
-  - usernames as last part of the path
-  - passwords as the content
+The app is supposed to have a minimalistic interface with just a search bar and a list of matches.
+
+You could copy a match by clicking on it.
+
+It's sketchy at the moment and works for Linux only.
