@@ -1,74 +1,23 @@
-use std::{
-    env,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::Path;
 
-use anyhow::Context;
-use walkdir::WalkDir;
+#[cfg(target_os = "android")]
+pub(crate) mod android;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
 
-/// # Desc
-/// GNU pass repository read-only access manager.
-pub struct PassRepository {
-    entries: Vec<PassEntry>,
-}
-
-impl PassRepository {
-    /// keep it return result for the time-being
-    #[allow(clippy::new_ret_no_self)]
-    pub(crate) fn new() -> anyhow::Result<Self> {
-        let pass_home = env::home_dir()
-            .context("cannot get home folder")?
-            .join(".password-store");
-        Ok(Self {
-            entries: Self::enumerate_entries(pass_home),
-        })
-    }
-
-    pub(crate) fn get_by_pattern(&self, pattern: &str) -> Vec<PassEntry> {
-        self.entries
-            .iter()
-            .filter(|e| e.contains(pattern))
-            .cloned()
-            .collect()
-    }
-
-    pub(crate) fn entries_count(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub(crate) fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
-        let output = Command::new("pass")
-            .arg(entry.to_string())
-            .output()
-            .context("cannot retrieve entry from pass")?;
-        let password =
-            str::from_utf8(&output.stdout).context("unable to interpret output as UTF-8 string")?;
-        Ok((entry.username(), password.trim().to_string()))
-    }
-
-    fn enumerate_entries(base_dir: PathBuf) -> Vec<PassEntry> {
-        WalkDir::new(&base_dir)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok().and_then(|e| {
-                    if e.file_type().is_file()
-                        && e.file_name()
-                            .to_str()
-                            .filter(|s| s.ends_with(".gpg"))
-                            .is_some()
-                    {
-                        // UNWRAP: all paths have base_dir as prefix
-                        Some(PassEntry::from(
-                            e.into_path().strip_prefix(&base_dir).unwrap(),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect()
-    }
+/// Required interface for pass repository
+/// TODO: why Arc<RwLock<...>> require this ?
+pub(crate) trait PassRepository: Send + Sync {
+    /// create new repository for the UI to access
+    fn new() -> anyhow::Result<Self>
+    where
+        Self: Sized;
+    /// get all entries matching a given pattern
+    fn get_by_pattern(&self, pattern: &str) -> Vec<PassEntry>;
+    /// number of entries in the pass
+    fn entries_count(&self) -> usize;
+    /// get (username, password) of the given entry
+    fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)>;
 }
 
 /// a single entry in the pass repository
