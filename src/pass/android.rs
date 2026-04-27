@@ -1,11 +1,11 @@
 pub(crate) struct PassRepository {}
 
 impl super::PassRepository for PassRepository {
-    fn new() -> anyhow::Result<Self>
+    fn new() -> Self
     where
         Self: Sized,
     {
-        Ok(Self {})
+        Self {}
     }
 
     fn entries_count(&self) -> usize {
@@ -18,5 +18,9 @@ impl super::PassRepository for PassRepository {
 
     fn retrieve(&self, _entry: &super::PassEntry) -> anyhow::Result<(String, String)> {
         Ok(("dummy username".to_string(), "dummy password".to_string()))
+    }
+
+    fn refresh_entries(&mut self, pass_root: Option<std::path::PathBuf>) {
+        // todo!()
     }
 }

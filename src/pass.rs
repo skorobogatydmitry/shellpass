@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -9,7 +9,7 @@ pub(crate) mod linux;
 /// TODO: why Arc<RwLock<...>> require this ?
 pub(crate) trait PassRepository: Send + Sync {
     /// create new repository for the UI to access
-    fn new() -> anyhow::Result<Self>
+    fn new() -> Self
     where
         Self: Sized;
     /// get all entries matching a given pattern
@@ -18,6 +18,8 @@ pub(crate) trait PassRepository: Send + Sync {
     fn entries_count(&self) -> usize;
     /// get (username, password) of the given entry
     fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)>;
+    /// update list of entries within the provided pass repository root
+    fn refresh_entries(&mut self, pass_root: Option<PathBuf>);
 }
 
 /// a single entry in the pass repository
