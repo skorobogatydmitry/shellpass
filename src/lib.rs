@@ -21,6 +21,7 @@ pub struct App {
     repository: Arc<RwLock<dyn pass::PassRepository>>,
     pattern: Arc<Mutex<String>>,
     pattern_change_fence: Arc<Condvar>,
+    settings_change_fence: Arc<Condvar>,
     last_match: Arc<RwLock<Vec<PassEntry>>>,
 }
 
@@ -34,21 +35,23 @@ impl App {
     pub fn new(
         _cc: &CreationContext,
     ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
-        let settings = SETTINGS.write().expect("settings are poisoned!");
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
         let mut repository = PassRepositoryImpl::new();
         repository.refresh_entries(settings.pass_root.as_ref().map(PathBuf::from));
         let mut result = Self {
             repository: Arc::new(RwLock::new(repository)),
             pattern: Arc::new(Mutex::new(String::new())),
             pattern_change_fence: Arc::new(Condvar::new()),
+            settings_change_fence: Arc::new(Condvar::new()),
             last_match: Arc::new(RwLock::new(Vec::new())),
         };
 
-        result.update_routine();
+        result.search_routine();
+        result.settings_update_routine();
         Ok(Box::new(result))
     }
 
-    pub fn update_routine(&mut self) {
+    fn search_routine(&mut self) {
         let pattern = Arc::clone(&self.pattern);
         let pattern_change_fence = Arc::clone(&self.pattern_change_fence);
         let last_match = Arc::clone(&self.last_match);
@@ -71,6 +74,21 @@ impl App {
                 last_match.clear();
                 last_match.extend(new_items);
                 info!("found matches: {}", last_match.len());
+            }
+        });
+    }
+
+    fn settings_update_routine(&mut self) {
+        let repository = Arc::clone(&self.repository);
+        let fence = Arc::clone(&self.settings_change_fence);
+        thread::spawn(move || {
+            let mut current_settings = SETTINGS.lock().expect("settings are poisoned!");
+            loop {
+                current_settings = fence
+                    .wait(current_settings)
+                    .expect("settings are poisoned!");
+                let mut repo = repository.write().expect("repository is poisoned!");
+                repo.refresh_entries(current_settings.pass_root.as_ref().map(PathBuf::from));
             }
         });
     }

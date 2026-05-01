@@ -1,6 +1,6 @@
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, Mutex};
 
-pub static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(Settings::new()));
+pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| Mutex::new(Settings::new()));
 
 /// tunable settings
 pub struct Settings {

@@ -2,41 +2,29 @@
 //! No functionality expected, just egui-s ladders
 
 use std::ops::DerefMut;
-use std::path::PathBuf;
 
 use egui::{InnerResponse, Layout, Popup, Response, ScrollArea, Ui};
 
+#[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "linux")]
 mod linux;
 
 trait OsUi {
-    fn top_padding(ui: &mut Ui);
+    fn top_padding(&mut self);
+    fn pass_root_setting(&mut self, app: &mut App);
 }
 
-#[cfg(target_os = "android")]
-use android::Ui as OsUiImpl;
-
-#[cfg(target_os = "linux")]
-use linux::Ui as OsUiImpl;
-
-use crate::{App, settings::SETTINGS};
+use crate::App;
 
 fn settings_menu(app: &mut App, button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.vertical_centered_justified(|ui| {
-                ui.label("pass repository root");
-                let mut settings = SETTINGS.write().expect("settings are poisoned");
-                let pass_root = settings.pass_root.get_or_insert(String::new());
-
-                if ui.text_edit_singleline(pass_root).changed() {
-                    settings.applied = false;
-                }
+                ui.pass_root_setting(app);
                 if ui.button("apply").highlight().clicked() {
-                    // TODO: do in own routine
-                    let mut repo = app.repository.write().expect("repository is poisoned!");
-                    repo.refresh_entries(settings.pass_root.as_ref().map(PathBuf::from));
+                    app.settings_change_fence.notify_one();
                 }
             });
         })
@@ -45,7 +33,7 @@ fn settings_menu(app: &mut App, button_resp: &Response) -> Option<InnerResponse<
 pub(crate) fn main(app: &mut App, ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
     ui.vertical_centered_justified(|ui| {
-        OsUiImpl::top_padding(ui);
+        ui.top_padding();
         ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 let image = egui::include_image!("../assets/cog.png");
