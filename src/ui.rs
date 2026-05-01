@@ -12,17 +12,19 @@ mod linux;
 
 trait OsUi {
     fn top_padding(&mut self);
-    fn pass_root_setting(&mut self, app: &mut App);
+    fn pass_root_setting(&mut self, app: &mut App) -> Response;
 }
 
-use crate::App;
+use crate::{App, settings::SETTINGS};
 
 fn settings_menu(app: &mut App, button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.vertical_centered_justified(|ui| {
-                ui.pass_root_setting(app);
+                if ui.pass_root_setting(app).changed() {
+                    SETTINGS.lock().expect("settings are poisoned!").applied = false;
+                }
                 if ui.button("apply").highlight().clicked() {
                     app.settings_change_fence.notify_one();
                 }

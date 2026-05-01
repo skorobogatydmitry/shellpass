@@ -1,4 +1,4 @@
-use egui::Ui;
+use egui::{Response, Ui};
 
 use crate::App;
 
@@ -11,7 +11,7 @@ impl super::OsUi for Ui {
         });
     }
 
-    fn pass_root_setting(&mut self, app: &mut App) {
-        // todo!()
+    fn pass_root_setting(&mut self, app: &mut App) -> Response {
+        todo!()
     }
 }
