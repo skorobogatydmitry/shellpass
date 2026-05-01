@@ -1,13 +1,11 @@
 use std::{
     error::Error,
-    ops::DerefMut,
     path::PathBuf,
     sync::{Arc, Condvar, Mutex, RwLock},
     thread,
 };
 
 use eframe::CreationContext;
-use egui::{InnerResponse, Layout, Popup, PopupCloseBehavior, Response, ScrollArea, Ui};
 use log::info;
 
 use crate::{
@@ -17,6 +15,7 @@ use crate::{
 
 pub(crate) mod pass;
 pub(crate) mod settings;
+pub(crate) mod ui;
 
 pub struct App {
     repository: Arc<RwLock<dyn pass::PassRepository>>,
@@ -75,88 +74,11 @@ impl App {
             }
         });
     }
-
-    #[cfg(target_os = "android")]
-    /// there's an area in adnroid screen which is actually occupied by status bar
-    /// let's keep it clean
-    fn top_padding(ui: &mut Ui) {
-        egui::Panel::top("status_bar_space").show_inside(ui, |ui| {
-            ui.set_height(32.0);
-        });
-    }
-
-    #[cfg(target_os = "linux")]
-    /// no top padding for linux is needed
-    fn top_padding(_ui: &mut Ui) {}
-
-    fn settings_menu(&mut self, button_resp: &Response) -> Option<InnerResponse<()>> {
-        Popup::menu(button_resp)
-            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                ui.vertical_centered_justified(|ui| {
-                    ui.label("pass repository root");
-                    let mut settings = SETTINGS.write().expect("settings are poisoned");
-                    let pass_root = settings.pass_root.get_or_insert(String::new());
-
-                    if ui.text_edit_singleline(pass_root).changed() {
-                        settings.applied = false;
-                    }
-                    if ui.button("apply").highlight().clicked() {
-                        // TODO: do in own routine
-                        let mut repo = self.repository.write().expect("repository is poisoned!");
-                        repo.refresh_entries(settings.pass_root.as_ref().map(PathBuf::from));
-                    }
-                });
-            })
-    }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.set_zoom_factor(1.5);
-        ui.vertical_centered_justified(|ui| {
-            Self::top_padding(ui);
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    let image = egui::include_image!("../assets/cog.png");
-                    let settings_button_resp = ui.button(image);
-                    let settings_menu_resp = self.settings_menu(&settings_button_resp);
-                    ui.centered_and_justified(|ui| {
-                        let mut pattern = self.pattern.lock().expect("pattern is poisoned!");
-                        let resp = ui.text_edit_singleline(pattern.deref_mut()).highlight();
-                        drop(pattern);
-                        if resp.changed() {
-                            self.pattern_change_fence.notify_one();
-                        }
-                        // keep focus on the main input unless there's a settings menu opened
-                        if settings_menu_resp.is_none() {
-                            resp.request_focus();
-                        }
-                    });
-                });
-            });
-
-            let repository = self.repository.read().expect("repository is poisoned!");
-            ui.label(match repository.entries_count() {
-                0 => "no entries found, check settings".to_string(),
-                count => format!("{} entries in your pass, start typing to search", count),
-            });
-        });
-
-        let last_match = self.last_match.read().expect("last match is poisoned!");
-        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            last_match.iter().for_each(|entry| {
-                // TODO: notification on click
-                if ui.selectable_label(false, entry.to_string()).clicked() {
-                    let repository = self.repository.read().expect("repository is poisoned!");
-                    if let Ok(data) = repository.retrieve(entry) {
-                        ui.copy_text(format!("{}:{}", data.0, data.1));
-                    } else {
-                        todo!("show notification on error")
-                    }
-                }
-            });
-        });
+        ui::main(self, ui);
     }
 }
 
