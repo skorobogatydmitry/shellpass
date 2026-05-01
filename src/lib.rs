@@ -35,10 +35,7 @@ impl App {
     pub fn new(
         _cc: &CreationContext,
     ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
-        let mut settings = SETTINGS.write().expect("settings are poisoned!");
-        settings
-            .load()
-            .map_err(|e| eframe::Error::AppCreation(e.into()))?;
+        let settings = SETTINGS.write().expect("settings are poisoned!");
         let mut repository = PassRepositoryImpl::new();
         repository.refresh_entries(settings.pass_root.as_ref().map(PathBuf::from));
         let mut result = Self {
@@ -106,7 +103,6 @@ impl App {
                     }
                     if ui.button("apply").highlight().clicked() {
                         // TODO: do in own routine
-                        settings.save();
                         let mut repo = self.repository.write().expect("repository is poisoned!");
                         repo.refresh_entries(settings.pass_root.as_ref().map(PathBuf::from));
                     }
@@ -141,22 +137,22 @@ impl eframe::App for App {
             });
 
             let repository = self.repository.read().expect("repository is poisoned!");
-            ui.label(format!(
-                "{} entries in your pass, start typing to search",
-                repository.entries_count()
-            ));
+            ui.label(match repository.entries_count() {
+                0 => "no entries found, check settings".to_string(),
+                count => format!("{} entries in your pass, start typing to search", count),
+            });
         });
 
         let last_match = self.last_match.read().expect("last match is poisoned!");
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             last_match.iter().for_each(|entry| {
-                // TODO: color on click
+                // TODO: notification on click
                 if ui.selectable_label(false, entry.to_string()).clicked() {
                     let repository = self.repository.read().expect("repository is poisoned!");
                     if let Ok(data) = repository.retrieve(entry) {
                         ui.copy_text(format!("{}:{}", data.0, data.1));
                     } else {
-                        todo!("show notification")
+                        todo!("show notification on error")
                     }
                 }
             });
@@ -193,8 +189,7 @@ pub fn linux_main() -> eframe::Result {
     env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            // .with_close_button(true) // TODO: make x visible
-            .with_decorations(false) // Hide the OS-specific "chrome" around the window
+            .with_decorations(false)
             .with_inner_size([600.0, 200.0])
             .with_min_inner_size([400.0, 150.0])
             .with_transparent(true),

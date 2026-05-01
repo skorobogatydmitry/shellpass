@@ -23,6 +23,27 @@ It's sketchy at the moment and works for Linux only.
 6. Run the app: `cargo apk run --lib`
   > ... from a different terminal, requires the same environment
 
+### Routine run
+
+Terminal 1:
+```
+export ANDROID_HOME="$HOME/tools/android"
+export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
+export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+$ANDROID_HOME/emulator/emulator -avd main -no-snapshot-load
+```
+
+Terminal 2:
+```
+export ANDROID_HOME="$HOME/tools/android"
+export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
+export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+cargo apk run --lib
+```
+
 # TODO
 1. TODOs in the code
 2. Accelerate startup by splitting app onto server and client parts
+3. Add some sort of notifications
+4. Make a button to close application
+5. Make scale factor user-defined

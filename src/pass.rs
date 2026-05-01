@@ -6,7 +6,7 @@ pub(crate) mod android;
 pub(crate) mod linux;
 
 /// Required interface for pass repository
-/// TODO: why Arc<RwLock<...>> require this ?
+/// TODO: why Arc<RwLock<...>> require Send + Sync for the inner ?
 pub(crate) trait PassRepository: Send + Sync {
     /// create new repository for the UI to access
     fn new() -> Self

@@ -20,7 +20,7 @@ impl super::PassRepository for PassRepository {
         Ok(("dummy username".to_string(), "dummy password".to_string()))
     }
 
-    fn refresh_entries(&mut self, pass_root: Option<std::path::PathBuf>) {
+    fn refresh_entries(&mut self, _pass_root: Option<std::path::PathBuf>) {
         // todo!()
     }
 }
