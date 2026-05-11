@@ -2,48 +2,71 @@
 
 The app is supposed to have a minimalistic interface with just a search bar and a list of matches.
 
-You could copy a match by clicking on it.
+You could copy a matched entry by clicking at it.
 
 It's sketchy at the moment and works for Linux only.
 
-## Android build & run
+## Linux
 
-1. Follow [this guide](https://github.com/skorobogatydmitry/egui/blob/sd/fill-android-pre-reqs/examples/hello_android/README.md#desktop-pre-requisites) to install pre-requisities.
-2. Then you can build an apk:
+No gotchas: `cargo run`.
+
+## Android
+
+### Steps to prepare Android build environment & emulator
+
+> First steps are from [this guide](https://github.com/skorobogatydmitry/egui/blob/sd/fill-android-pre-reqs/examples/hello_android/README.md#desktop-pre-requisites).
+
+1. `rustup target add armv7-linux-androideabi aarch64-linux-android` - install targets for android
+2. Set environment variables (these variables are required each time for `cargo apk2`):
+  ```sh
+  export ANDROID_HOME="$HOME/tools/android"
+  export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
+  export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+  ```
+3. Install command line tools:
+  ```sh
+  mkdir -p "${ANDROID_HOME}/cmdline-tools"
+  curl -sLo /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-14742923_latest.zip
+  unzip -d "${ANDROID_HOME}" /tmp/clt.zip
+  ```
+4. Install SDK components: `sdkmanager --sdk_root="${ANDROID_HOME}" --install "build-tools;36.0.0" "ndk;29.0.14206865" "platforms;android-35"`
+5. Install cargo-apk: `cargo install cargo-apk2`
+6. Install any JDK <= 21 using your OS package manager (e.g. `sudo pacman -S jdk21-openjdk ; sudo archlinux-java set java-21-openjdk`)
+
+Now it's possible to build an apk:
   ```
   export ANDROID_HOME="$HOME/tools/android"
   export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
   export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
-  cargo apk build
+  cargo apk2 build --lib
   ```
-3. Running APK on emulator requires some more components: `sdkmanager --sdk_root=${ANDROID_HOME} --install platform-tools emulator "system-images;android-35;google_apis;x86_64"`
-4. Create AVD: `avdmanager create avd -n main -k "system-images;android-35;google_apis;x86_64"`
+
+7. Install components for emulator: `sdkmanager --sdk_root=${ANDROID_HOME} --install platform-tools emulator "system-images;android-35;google_apis;x86_64"`
+8. Create AVD: `avdmanager create avd -n main -k "system-images;android-35;google_apis;x86_64"`
   > I had to fix `~/.android/avd/main.avd/config.ini` - remove android/ prefix from the `image.sysdir.1` option
-5. Start emulator: `$ANDROID_HOME/emulator/emulator -avd main -no-snapshot-load`
-6. Run the app: `cargo apk run --lib`
-  > ... from a different terminal, requires the same environment
 
-### Routine run
+The env to run app on android is ready.
 
-Terminal 1:
+### Start emulator and run app on it
+1. Emulator:
 ```
 export ANDROID_HOME="$HOME/tools/android"
 export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
 export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
 $ANDROID_HOME/emulator/emulator -avd main -no-snapshot-load
 ```
-
-Terminal 2:
+2. Build & run application:
 ```
 export ANDROID_HOME="$HOME/tools/android"
 export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
 export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
-cargo apk run --lib
+cargo apk2 run --lib
 ```
 
 # TODO
-1. TODOs in the code
-2. Accelerate startup by splitting app onto server and client parts
-3. Add some sort of notifications
-4. Make a button to close application
-5. Make scale factor user-defined
+- TODOs in the code
+- Add user-visible notifications
+- Make a button to close application
+- Make interface scale factor user-defined
+- Make a housekeeper to crash program if any thread crashes
+- Persist settings

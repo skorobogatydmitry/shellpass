@@ -22,10 +22,26 @@ eframe = { version = "0.34.1", default-features = false, features = ["accesskit"
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.34.1", default-features = false, features = ["wgpu", "android-native-activity"] }
 android_logger = "0.15.1"
+jni = "0.22.4"
+jni-min-helper = "0.4.0"
+ndk-context = "0.1.1"
 
 [package.metadata.android]
 build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
+java_sources = "java"
 
 [package.metadata.android.sdk]
 min_sdk_version = 23
 target_sdk_version = 35
+
+[[package.metadata.android.application.activity]]
+name = "android.app.NativeActivity"
+exported = true
+
+[[package.metadata.android.application.activity.meta_data]]
+name = "android.app.lib_name"
+value = "shellpass"
+
+[[package.metadata.android.application.activity]]
+name = "java.BootstrapActivity"
+exported = false

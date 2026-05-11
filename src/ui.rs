@@ -6,28 +6,23 @@ use std::ops::DerefMut;
 use egui::{InnerResponse, Layout, Popup, Response, ScrollArea, Ui};
 
 #[cfg(target_os = "android")]
-mod android;
+pub(crate) mod android;
 #[cfg(target_os = "linux")]
 mod linux;
 
 trait OsUi {
     fn top_padding(&mut self);
-    fn pass_root_setting(&mut self, app: &mut App) -> Response;
+    fn pass_root_setting(&mut self, app: &mut App);
 }
 
-use crate::{App, settings::SETTINGS};
+use crate::App;
 
 fn settings_menu(app: &mut App, button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.vertical_centered_justified(|ui| {
-                if ui.pass_root_setting(app).changed() {
-                    SETTINGS.lock().expect("settings are poisoned!").applied = false;
-                }
-                if ui.button("apply").highlight().clicked() {
-                    app.settings_change_fence.notify_one();
-                }
+                ui.pass_root_setting(app);
             });
         })
 }
