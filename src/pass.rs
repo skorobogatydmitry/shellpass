@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -19,7 +19,7 @@ pub(crate) trait PassRepository: Send + Sync {
     /// get (username, password) of the given entry
     fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)>;
     /// update list of entries within the provided pass repository root
-    fn refresh_entries(&mut self, pass_root: Option<PathBuf>);
+    fn refresh_entries(&mut self, pass_root: &str);
 }
 
 /// a single entry in the pass repository

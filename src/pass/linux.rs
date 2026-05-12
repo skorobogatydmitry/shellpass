@@ -19,31 +19,31 @@ impl super::PassRepository for PassRepository {
         }
     }
 
-    fn refresh_entries(&mut self, pass_root: Option<PathBuf>) {
-        self.last_used_root = pass_root;
+    fn refresh_entries(&mut self, pass_root: &str) {
+        let pass_root = PathBuf::from(pass_root);
         // TODO: return if any entries were updated
-        if let Some(pass_root) = self.last_used_root.as_ref() {
-            self.entries = WalkDir::new(pass_root)
-                .into_iter()
-                .filter_map(|e| {
-                    e.ok().and_then(|e| {
-                        if e.file_type().is_file()
-                            && e.file_name()
-                                .to_str()
-                                .filter(|s| s.ends_with(".gpg"))
-                                .is_some()
-                        {
-                            // UNWRAP: all paths have pass_root as prefix
-                            Some(super::PassEntry::from(
-                                e.into_path().strip_prefix(pass_root).unwrap(),
-                            ))
-                        } else {
-                            None
-                        }
-                    })
+        self.entries = WalkDir::new(&pass_root)
+            .into_iter()
+            .filter_map(|e| {
+                e.ok().and_then(|e| {
+                    if e.file_type().is_file()
+                        && e.file_name()
+                            .to_str()
+                            .filter(|s| s.ends_with(".gpg"))
+                            .is_some()
+                    {
+                        // UNWRAP: all paths have pass_root as prefix
+                        Some(super::PassEntry::from(
+                            e.into_path().strip_prefix(&pass_root).unwrap(),
+                        ))
+                    } else {
+                        None
+                    }
                 })
-                .collect();
-        }
+            })
+            .collect();
+        // TODO: do this only on success
+        self.last_used_root = Some(pass_root);
     }
 
     fn get_by_pattern(&self, pattern: &str) -> Vec<super::PassEntry> {

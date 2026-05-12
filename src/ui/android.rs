@@ -1,8 +1,7 @@
 use egui::Ui;
 use jni::{
-    Env, EnvUnowned, JNIEnv, jni_sig, jni_str,
-    objects::{JClass, JObject, JString, JValue},
-    refs::Global,
+    EnvUnowned, jni_sig, jni_str,
+    objects::{JObject, JString, JValue},
 };
 use jni_min_helper::jni_with_env;
 use log::debug;
@@ -16,9 +15,8 @@ use std::{
     time::Duration,
 };
 
-use crate::{App, settings::SETTINGS};
+use crate::{App, android_interface::get_class, settings::SETTINGS};
 
-static BOOTSTRAP_ACTIVITY_CLASS: OnceLock<Global<JClass<'_>>> = OnceLock::new();
 static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
 
@@ -38,12 +36,9 @@ impl super::OsUi for Ui {
             None => "pass root is not set".to_string(),
         };
         drop(settings);
-        let is_clicked = self
-            .button("pick a new folder")
-            .highlight()
-            .on_hover_text(pass_root_hint) // TODO: find out why this doesn't work
-            .clicked();
-        if is_clicked {
+        self.label(pass_root_hint);
+
+        if self.button("pick a new folder").highlight().clicked() {
             // TODO: show error to the user
             run_picker().expect("can't fire dir picker");
             thread::spawn(|| {
@@ -72,15 +67,14 @@ fn run_picker() -> jni::errors::Result<()> {
     jni_with_env(|env| -> jni::errors::Result<()> {
         let ctx =
             unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
-        let class_ref = BOOTSTRAP_ACTIVITY_CLASS
-            .get()
-            .expect("unable to fetch class ref")
-            .as_obj();
+        let class_raw = get_class(env, "java.BootstrapActivity")?.as_raw();
+        // UNSAFE: cast the pointer obtained above
+        let class_ref = unsafe { JObject::from_raw(env, class_raw) };
 
         let intent = env.new_object(
             jni_str!("android/content/Intent"),
             jni_sig!((android.content.Context, java.lang.Class) -> ()),
-            &[JValue::Object(&ctx), JValue::Object(class_ref)],
+            &[JValue::Object(&ctx), JValue::Object(&class_ref)],
         )?;
 
         // prevents `Calling startActivity() from outside of an Activity context requires the FLAG_ACTIVITY_NEW_TASK flag`
@@ -104,16 +98,6 @@ fn run_picker() -> jni::errors::Result<()> {
 
 /// initiazile classes and variables to be able to launch file picker
 pub fn load_file_picker_activity() -> jni::errors::Result<()> {
-    jni_with_env(|env| -> jni::errors::Result<()> {
-        let activity_class = load_bootstrap_class(env)?;
-        BOOTSTRAP_ACTIVITY_CLASS
-            .set(
-                env.new_global_ref(activity_class)
-                    .expect("cannot store global ref to the loaded activity"),
-            )
-            .expect("unable to save bootstrap class");
-        Ok(())
-    })?;
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     DIR_PICKER_TX
         .set(tx)
@@ -122,32 +106,6 @@ pub fn load_file_picker_activity() -> jni::errors::Result<()> {
         .set(Mutex::new(rx))
         .expect("can't set directory picker pipe rx");
     Ok(())
-}
-
-/// load the pre-compiled java.BootstrapActivity class by the default class loader
-fn load_bootstrap_class<'a>(env: &mut Env<'a>) -> jni::errors::Result<JClass<'a>> {
-    let ctx = unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
-
-    let loader = env
-        .call_method(
-            &ctx,
-            jni_str!("getClassLoader"),
-            jni_sig!(() -> java.lang.ClassLoader),
-            &[],
-        )?
-        .l()?;
-
-    let class_name = env.new_string("java.BootstrapActivity")?;
-    let class = env
-        .call_method(
-            &loader,
-            jni_str!("loadClass"),
-            jni_sig!((java.lang.String) -> java.lang.Class),
-            &[JValue::Object(&class_name)],
-        )?
-        .l()?;
-
-    JClass::cast_local(env, class)
 }
 
 /// impls the respective Java function, see java/BootstrapActivity.java

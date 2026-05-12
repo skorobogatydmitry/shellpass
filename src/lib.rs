@@ -8,6 +8,8 @@ use std::{
 
 #[cfg(target_os = "android")]
 use crate::ui::android::load_file_picker_activity;
+#[cfg(target_os = "android")]
+pub(crate) mod android_interface;
 
 use crate::{
     pass::{PassEntry, PassRepository},

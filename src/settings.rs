@@ -1,5 +1,4 @@
 use std::{
-    path::PathBuf,
     sync::{Arc, Condvar, LazyLock, Mutex, RwLock},
     thread,
 };
@@ -34,8 +33,9 @@ impl Settings {
             let mut current_settings = SETTINGS.lock().expect("settings are poisoned!");
             loop {
                 let mut repo = repository.write().expect("repository is poisoned!");
-                // TODO: may not be a PathBuf for Android...
-                repo.refresh_entries(current_settings.pass_root.as_ref().map(PathBuf::from));
+                if let Some(pass_root) = current_settings.pass_root.as_ref() {
+                    repo.refresh_entries(pass_root);
+                }
                 drop(repo);
                 current_settings = fence
                     .wait(current_settings)
