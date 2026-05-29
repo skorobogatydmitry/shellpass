@@ -25,13 +25,17 @@ public class BootstrapActivity extends Activity {
         Intent data
     ) {
         super.onActivityResult(requestCode, resultCode, data);
-        nativeOnActivityResult(requestCode, resultCode, data);
+        nativeOnActivityResult(
+            requestCode,
+            resultCode,
+            data.getData().toString()
+        );
         finish();
     }
 
     public native void nativeOnActivityResult(
         int requestCode,
         int resultCode,
-        Intent data
+        String data
     );
 }

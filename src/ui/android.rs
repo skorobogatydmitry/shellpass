@@ -115,31 +115,13 @@ extern "C" fn Java_java_BootstrapActivity_nativeOnActivityResult(
     _this: JObject,
     _request_code: i32,
     result_code: i32,
-    data: JObject,
+    uri: JObject,
 ) {
     DIR_PICKER_TX
         .get()
         .expect("dir picker channel is closed")
         .send((result_code == -1).then(|| {
-            let uri = env.with_env(|env| {
-                let uri_obj = env
-                    .call_method(
-                        &data,
-                        jni_str!("getData"),
-                        jni_sig!(() -> android.net.Uri),
-                        &[],
-                    )?
-                    .l()?;
-                let uri_str = env
-                    .call_method(
-                        &uri_obj,
-                        jni_str!("toString"),
-                        jni_sig!(() -> java.lang.String),
-                        &[],
-                    )?
-                    .l()?;
-                JString::cast_local(env, uri_str).map(|js| js.to_string())
-            });
+            let uri = env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
             // TODO: bubble-up errors / process correctly here
             uri.resolve::<jni::errors::LogErrorAndDefault>()
         }))
