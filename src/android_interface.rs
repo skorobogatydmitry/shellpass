@@ -1,5 +1,6 @@
-//! Various methods to simplify working with Java classes
+//! Various methods to simplify working with Java classes and data types
 
+use anyhow::Context;
 use jni::{
     Env, jni_sig, jni_str,
     objects::{JClass, JObject, JValue},
@@ -52,4 +53,14 @@ pub(crate) fn get_class<'a>(
 
         Ok(local_class)
     }
+}
+
+// content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass -> Documents/pass
+pub(crate) fn uri_path(uri: &str) -> anyhow::Result<String> {
+    let decoded = urlencoding::decode(uri)?;
+    decoded
+        .split(":")
+        .last()
+        .context("error finding ':'")
+        .map(|s| s.to_string())
 }

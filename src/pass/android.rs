@@ -7,7 +7,7 @@ use jni::{
 use log::warn;
 use ndk_context::android_context;
 
-use crate::android_interface::get_class;
+use crate::android_interface::{get_class, uri_path};
 
 use super::PassEntry as _PassEntry;
 
@@ -110,24 +110,12 @@ impl PassEntry {
 
     fn entry_path(&self) -> String {
         // TODO: validate
-        let real_root_path = self
-            .root
-            .split("/")
-            .last()
-            .expect("no last part of the entry root");
-        let encoded_entry_full_path = self
-            .suffix
-            .split("/")
-            .last()
-            .expect("no last part on the entry path");
-        let encoded_entry_rel_path = encoded_entry_full_path
-            .strip_prefix(real_root_path)
-            .expect("entry doesn't start from root's path");
-        // here we have something like %2Fsite%2Fsome.gpg
-        let decoded_rel_path =
-            urlencoding::decode(encoded_entry_rel_path).expect("cannot decode entry rel path");
-        // and here: /site/some.gpg
-        decoded_rel_path[1..].to_string()
+        let real_root_path = uri_path(&self.root).expect("cannot get entry's root path");
+        let entry_full_path = uri_path(&self.suffix).expect("cannot get entry's full path");
+        entry_full_path
+            .strip_prefix(&real_root_path)
+            .expect("entry doesn't start from root's path")[1..]
+            .to_string()
     }
 }
 
@@ -137,12 +125,6 @@ impl super::PassEntry for PassEntry {
     }
 
     fn username(&self) -> String {
-        todo!()
-    }
-}
-
-impl From<&Path> for PassEntry {
-    fn from(value: &Path) -> Self {
         todo!()
     }
 }
