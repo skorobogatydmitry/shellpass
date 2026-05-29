@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -51,11 +52,10 @@ impl super::PassRepository<PassEntry> for PassRepository {
         self.last_used_root = Some(pass_root);
     }
 
-    fn get_by_pattern(&self, pattern: &str) -> Vec<PassEntry> {
+    fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {
         self.entries
             .iter()
             .filter(|e| e.contains(pattern))
-            .cloned()
             .collect()
     }
 
@@ -65,7 +65,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
 
     fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
         let output = Command::new("pass")
-            .arg(entry.to_string())
+            .arg(entry.as_path())
             .output()
             .context("cannot retrieve entry from pass")?;
         let password =
@@ -77,6 +77,13 @@ impl super::PassRepository<PassEntry> for PassRepository {
 #[derive(Clone)]
 pub(crate) struct PassEntry {
     path_components: Vec<String>,
+}
+
+impl PassEntry {
+    // TODO:  refactor away from calling pass command
+    fn as_path(&self) -> String {
+        self.path_components.join("/")
+    }
 }
 
 impl super::PassEntry for PassEntry {
@@ -109,9 +116,8 @@ impl From<&Path> for PassEntry {
     }
 }
 
-#[allow(clippy::to_string_trait_impl)]
-impl ToString for PassEntry {
-    fn to_string(&self) -> String {
-        self.path_components.join("/")
+impl Display for PassEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_path())
     }
 }

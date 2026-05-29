@@ -3,7 +3,10 @@ use std::{
     thread,
 };
 
-use crate::pass::{PassRepository, REPOSITORY};
+use crate::{
+    finder::FINDER,
+    pass::{PassRepository, REPOSITORY},
+};
 
 pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| Mutex::new(Settings::new()));
 
@@ -35,6 +38,9 @@ impl Settings {
                 let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
                 if let Some(pass_root) = current_settings.pass_root.as_ref() {
                     repo.refresh_entries(pass_root);
+                    // let the finder to refresh matches
+                    let finder = FINDER.lock().expect("finder is poisoned!");
+                    finder.change_fence.notify_one();
                 }
                 drop(repo);
                 current_settings = fence

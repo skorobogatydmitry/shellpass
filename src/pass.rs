@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     path::Path,
     sync::{LazyLock, Mutex},
 };
@@ -19,7 +20,7 @@ pub(crate) trait PassRepository<Y: PassEntry>: Send + Sync {
     where
         Self: Sized;
     /// get all entries matching a given pattern
-    fn get_by_pattern(&self, pattern: &str) -> Vec<Y>;
+    fn get_by_pattern(&self, pattern: &str) -> Vec<&Y>;
     /// number of entries in the pass
     fn entries_count(&self) -> usize;
     /// get (username, password) of the given entry
@@ -30,7 +31,7 @@ pub(crate) trait PassRepository<Y: PassEntry>: Send + Sync {
 
 /// a single entry in the pass repository
 /// it reflests the path to entry within the pass repository
-pub(crate) trait PassEntry: for<'a> From<&'a Path> + ToString + Clone {
+pub(crate) trait PassEntry: for<'a> From<&'a Path> + Display + Clone {
     fn contains(&self, pattern: &str) -> bool;
     fn username(&self) -> String;
 }

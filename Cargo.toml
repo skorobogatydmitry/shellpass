@@ -25,6 +25,7 @@ android_logger = "0.15.1"
 jni = "0.22.4"
 jni-min-helper = "0.4.0"
 ndk-context = "0.1.1"
+url = "2.5.8"
 
 [package.metadata.android]
 build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]

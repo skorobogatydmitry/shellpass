@@ -1,78 +1,41 @@
 use eframe::CreationContext;
-use log::info;
-use std::{
-    error::Error,
-    sync::{Arc, Condvar, Mutex, RwLock},
-    thread,
-};
+use std::error::Error;
 
 #[cfg(target_os = "android")]
 use crate::ui::android::load_file_picker_activity;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{
-    pass::{PassEntry, PassRepository, REPOSITORY},
-    settings::SETTINGS,
-};
+use crate::{finder::FINDER, settings::SETTINGS};
 
+pub(crate) mod finder;
 pub(crate) mod pass;
 pub(crate) mod settings;
 pub(crate) mod ui;
 
-pub(crate) struct App<U: PassEntry> {
-    pattern: Arc<Mutex<String>>,
-    pattern_change_fence: Arc<Condvar>,
-    last_match: Arc<RwLock<Vec<U>>>,
-}
+pub(crate) struct App;
 
-impl App<pass::PassEntryImpl> {
+impl App {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
         _cc: &CreationContext,
     ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
-        let mut result = Self {
-            pattern: Arc::new(Mutex::new(String::new())),
-            pattern_change_fence: Arc::new(Condvar::new()),
-            last_match: Arc::new(RwLock::new(Vec::new())),
-        };
+        {
+            let mut finder = FINDER.lock().expect("finder is poisoned!");
+            finder.search_routine();
+        }
 
-        result.search_routine();
-        let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-        settings.update_routine();
-        Ok(Box::new(result))
-    }
-
-    fn search_routine(&mut self) {
-        let pattern = Arc::clone(&self.pattern);
-        let pattern_change_fence = Arc::clone(&self.pattern_change_fence);
-        let last_match = Arc::clone(&self.last_match);
-
-        thread::spawn(move || {
-            let mut current_pattern = pattern.lock().expect("pattern is poisoned!");
-            loop {
-                current_pattern = pattern_change_fence
-                    .wait(current_pattern)
-                    .expect("pattern is poisoned!");
-                let last_seen_pattern = current_pattern.clone();
-
-                // TODO: make a faster swap
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                let new_items = repository.get_by_pattern(last_seen_pattern.as_str());
-                drop(repository);
-
-                let mut last_match = last_match.write().expect("last match is poisoned!");
-                last_match.clear();
-                last_match.extend(new_items);
-                info!("found matches: {}", last_match.len());
-            }
-        });
+        {
+            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
+            settings.update_routine();
+        }
+        Ok(Box::new(Self {}))
     }
 }
 
-impl eframe::App for App<pass::PassEntryImpl> {
+impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui::main(self, ui);
+        ui::main(ui);
     }
 }
 

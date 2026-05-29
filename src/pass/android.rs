@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fmt::Display, path::Path};
 
 use jni::{
     JValue, jni_sig, jni_str,
@@ -6,8 +6,11 @@ use jni::{
 };
 use log::warn;
 use ndk_context::android_context;
+use url::Url;
 
 use crate::android_interface::get_class;
+
+use super::PassEntry as _PassEntry;
 
 pub(crate) struct PassRepository {
     entries: Vec<PassEntry>,
@@ -29,8 +32,11 @@ impl super::PassRepository<PassEntry> for PassRepository {
         self.entries.len()
     }
 
-    fn get_by_pattern(&self, _pattern: &str) -> Vec<PassEntry> {
-        Vec::new()
+    fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {
+        self.entries
+            .iter()
+            .filter(|e| e.contains(pattern))
+            .collect()
     }
 
     fn retrieve(&self, _entry: &PassEntry) -> anyhow::Result<(String, String)> {
@@ -69,7 +75,15 @@ impl super::PassRepository<PassEntry> for PassRepository {
             Ok(gpg_files) => {
                 self.entries = gpg_files
                     .into_iter()
-                    .map(|file_uri| PassEntry::new(file_uri))
+                    .filter_map(|uri_str| match Url::parse(uri_str.as_str()) {
+                        Ok(url) => Some(url),
+                        Err(e) => {
+                            // TODO: show to the end-user
+                            warn!("unable to parse file URI as URL: {e}");
+                            None
+                        }
+                    })
+                    .map(|url| PassEntry::new(url))
                     .collect();
                 self.last_seen_pass = Some(pass_root.to_string());
                 log::info!(
@@ -86,13 +100,13 @@ impl super::PassRepository<PassEntry> for PassRepository {
 
 #[derive(Clone)]
 pub(crate) struct PassEntry {
-    uri: String,
+    url: Url,
 }
 
 impl PassEntry {
-    fn new(uri: String) -> Self {
+    fn new(url: Url) -> Self {
         // TODO: validate
-        Self { uri }
+        Self { url }
     }
 }
 
@@ -106,14 +120,23 @@ impl super::PassEntry for PassEntry {
     }
 }
 
-impl ToString for PassEntry {
-    fn to_string(&self) -> String {
+impl From<&Path> for PassEntry {
+    fn from(value: &Path) -> Self {
         todo!()
     }
 }
 
-impl From<&Path> for PassEntry {
-    fn from(value: &Path) -> Self {
-        todo!()
+impl Display for PassEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.url
+                .path_segments()
+                .unwrap()
+                .last()
+                .map(|full_path| full_path)
+                .unwrap()
+        )
     }
 }
