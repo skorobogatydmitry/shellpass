@@ -1,10 +1,11 @@
 use std::{
     fmt::Display,
+    fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
+use gpgme::Protocol;
 use walkdir::WalkDir;
 
 use super::PassEntry as _PassEntry;
@@ -64,13 +65,27 @@ impl super::PassRepository<PassEntry> for PassRepository {
     }
 
     fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
-        let output = Command::new("pass")
-            .arg(entry.as_path())
-            .output()
-            .context("cannot retrieve entry from pass")?;
-        let password =
-            str::from_utf8(&output.stdout).context("unable to interpret output as UTF-8 string")?;
-        Ok((entry.username(), password.trim().to_string()))
+        // let key_file = PathBuf::from("/home/dk/.gnupg/pubring.kbx");
+        let mut ctx = gpgme::Context::from_protocol(Protocol::OpenPgp)
+            .context("cannot initialize context for GnuPG")?;
+        let root = self
+            .last_used_root
+            .as_ref()
+            .ok_or(anyhow!(
+                "no root to retrieve entries (it's the program state consistency problem)"
+            ))?
+            .clone();
+        let full_entry_path = root.join(entry.path());
+        let mut input = fs::File::open(full_entry_path).context(entry.clone())?;
+        let mut output = Vec::new();
+
+        ctx.decrypt(&mut input, &mut output)
+            .context("error decrypting an entry")?;
+
+        Ok((
+            entry.username(),
+            String::from_utf8(output)?.trim().to_string(),
+        ))
     }
 }
 
@@ -80,9 +95,8 @@ pub(crate) struct PassEntry {
 }
 
 impl PassEntry {
-    // TODO:  refactor away from calling pass command
-    fn as_path(&self) -> String {
-        self.path_components.join("/")
+    fn path(&self) -> String {
+        format!("{}.gpg", self.path_components.join("/"))
     }
 }
 
@@ -118,6 +132,6 @@ impl From<&Path> for PassEntry {
 
 impl Display for PassEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_path())
+        write!(f, "{}", self.path_components.join("/"))
     }
 }

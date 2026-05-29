@@ -65,10 +65,12 @@ pub(crate) fn main(ui: &mut Ui) {
             // TODO: notification on click
             if ui.selectable_label(false, entry.to_string()).clicked() {
                 let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                if let Ok(data) = repository.retrieve(entry) {
-                    ui.copy_text(format!("{}:{}", data.0, data.1));
-                } else {
-                    todo!("show notification on error")
+                match repository.retrieve(entry) {
+                    Ok(data) => {
+                        ui.copy_text(format!("{}:{}", data.0, data.1));
+                    }
+                    // TODO: notify the end-user
+                    Err(e) => log::error!("unable to retrieve an entry: {e}"),
                 }
             }
         });

@@ -1,6 +1,5 @@
 use std::{
     fmt::Display,
-    path::Path,
     sync::{LazyLock, Mutex},
 };
 
@@ -13,8 +12,7 @@ pub(crate) mod android;
 pub(crate) mod linux;
 
 /// Required interface for pass repository
-/// TODO: why Arc<RwLock<...>> require Send + Sync for the inner ?
-pub(crate) trait PassRepository<Y: PassEntry>: Send + Sync {
+pub(crate) trait PassRepository<Y: PassEntry> {
     /// create new repository for the UI to access
     fn new() -> Self
     where
