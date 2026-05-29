@@ -6,7 +6,6 @@ use jni::{
 };
 use log::warn;
 use ndk_context::android_context;
-use url::Url;
 
 use crate::android_interface::get_class;
 
@@ -44,6 +43,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
     }
 
     fn refresh_entries(&mut self, pass_root: &str) {
+        warn!("root is {pass_root}");
         match jni_min_helper::jni_with_env(|env| {
             let ctx =
                 unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
@@ -75,15 +75,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
             Ok(gpg_files) => {
                 self.entries = gpg_files
                     .into_iter()
-                    .filter_map(|uri_str| match Url::parse(uri_str.as_str()) {
-                        Ok(url) => Some(url),
-                        Err(e) => {
-                            // TODO: show to the end-user
-                            warn!("unable to parse file URI as URL: {e}");
-                            None
-                        }
-                    })
-                    .map(|url| PassEntry::new(url))
+                    .map(|url| PassEntry::new(pass_root, url))
                     .collect();
                 self.last_seen_pass = Some(pass_root.to_string());
                 log::info!(
@@ -100,19 +92,48 @@ impl super::PassRepository<PassEntry> for PassRepository {
 
 #[derive(Clone)]
 pub(crate) struct PassEntry {
-    url: Url,
+    root: String,
+    suffix: String,
 }
 
 impl PassEntry {
-    fn new(url: Url) -> Self {
+    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass
+    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass/document/primary%3ADocuments%2Fpass%2F1.gpg
+    fn new(root: &str, uri: String) -> Self {
         // TODO: validate
-        Self { url }
+        // UNWRAP: uri should start from the prefix
+        Self {
+            root: root.to_string(),
+            suffix: uri.strip_prefix(root).unwrap().to_string(),
+        }
+    }
+
+    fn entry_path(&self) -> String {
+        // TODO: validate
+        let real_root_path = self
+            .root
+            .split("/")
+            .last()
+            .expect("no last part of the entry root");
+        let encoded_entry_full_path = self
+            .suffix
+            .split("/")
+            .last()
+            .expect("no last part on the entry path");
+        let encoded_entry_rel_path = encoded_entry_full_path
+            .strip_prefix(real_root_path)
+            .expect("entry doesn't start from root's path");
+        // here we have something like %2Fsite%2Fsome.gpg
+        let decoded_rel_path =
+            urlencoding::decode(encoded_entry_rel_path).expect("cannot decode entry rel path");
+        // and here: /site/some.gpg
+        decoded_rel_path[1..].to_string()
     }
 }
 
 impl super::PassEntry for PassEntry {
     fn contains(&self, pattern: &str) -> bool {
-        todo!()
+        self.entry_path().contains(pattern)
     }
 
     fn username(&self) -> String {
@@ -131,12 +152,9 @@ impl Display for PassEntry {
         write!(
             f,
             "{}",
-            self.url
-                .path_segments()
-                .unwrap()
-                .last()
-                .map(|full_path| full_path)
-                .unwrap()
+            self.entry_path()
+                .strip_suffix(".gpg")
+                .expect("cannot strip prefix from entry path")
         )
     }
 }
