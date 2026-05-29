@@ -12,22 +12,22 @@ mod linux;
 
 trait OsUi {
     fn top_padding(&mut self);
-    fn pass_root_setting(&mut self, app: &mut App);
+    fn pass_root_setting(&mut self);
 }
 
-use crate::App;
+use crate::pass::{PassEntryImpl, PassRepository, REPOSITORY};
 
-fn settings_menu(app: &mut App, button_resp: &Response) -> Option<InnerResponse<()>> {
+fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.vertical_centered_justified(|ui| {
-                ui.pass_root_setting(app);
+                ui.pass_root_setting();
             });
         })
 }
 
-pub(crate) fn main(app: &mut App, ui: &mut Ui) {
+pub(crate) fn main(app: &mut super::App<PassEntryImpl>, ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
     ui.vertical_centered_justified(|ui| {
         ui.top_padding();
@@ -35,7 +35,7 @@ pub(crate) fn main(app: &mut App, ui: &mut Ui) {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 let image = egui::include_image!("../assets/cog.png");
                 let settings_button_resp = ui.button(image);
-                let settings_menu_resp = settings_menu(app, &settings_button_resp);
+                let settings_menu_resp = settings_menu(&settings_button_resp);
                 ui.centered_and_justified(|ui| {
                     let mut pattern = app.pattern.lock().expect("pattern is poisoned!");
                     let resp = ui.text_edit_singleline(pattern.deref_mut()).highlight();
@@ -51,7 +51,7 @@ pub(crate) fn main(app: &mut App, ui: &mut Ui) {
             });
         });
 
-        let repository = app.repository.read().expect("repository is poisoned!");
+        let repository = REPOSITORY.lock().expect("repository is poisoned!");
         ui.label(match repository.entries_count() {
             0 => "no entries found, check settings".to_string(),
             count => format!("{} entries in your pass, start typing to search", count),
@@ -63,7 +63,7 @@ pub(crate) fn main(app: &mut App, ui: &mut Ui) {
         last_match.iter().for_each(|entry| {
             // TODO: notification on click
             if ui.selectable_label(false, entry.to_string()).clicked() {
-                let repository = app.repository.read().expect("repository is poisoned!");
+                let repository = REPOSITORY.lock().expect("repository is poisoned!");
                 if let Ok(data) = repository.retrieve(entry) {
                     ui.copy_text(format!("{}:{}", data.0, data.1));
                 } else {

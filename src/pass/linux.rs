@@ -1,17 +1,22 @@
-use std::{path::PathBuf, process::Command};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::Context;
 use walkdir::WalkDir;
+
+use super::PassEntry as _PassEntry;
 
 /// Simple implementation for Linux
 /// - list .gpg files in ~/.password-store to find all entries
 /// - use `pass ...` command to get passwords
 pub struct PassRepository {
-    entries: Vec<super::PassEntry>,
+    entries: Vec<PassEntry>,
     last_used_root: Option<PathBuf>,
 }
 
-impl super::PassRepository for PassRepository {
+impl super::PassRepository<PassEntry> for PassRepository {
     fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -33,7 +38,7 @@ impl super::PassRepository for PassRepository {
                             .is_some()
                     {
                         // UNWRAP: all paths have pass_root as prefix
-                        Some(super::PassEntry::from(
+                        Some(PassEntry::from(
                             e.into_path().strip_prefix(&pass_root).unwrap(),
                         ))
                     } else {
@@ -46,7 +51,7 @@ impl super::PassRepository for PassRepository {
         self.last_used_root = Some(pass_root);
     }
 
-    fn get_by_pattern(&self, pattern: &str) -> Vec<super::PassEntry> {
+    fn get_by_pattern(&self, pattern: &str) -> Vec<PassEntry> {
         self.entries
             .iter()
             .filter(|e| e.contains(pattern))
@@ -58,7 +63,7 @@ impl super::PassRepository for PassRepository {
         self.entries.len()
     }
 
-    fn retrieve(&self, entry: &super::PassEntry) -> anyhow::Result<(String, String)> {
+    fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
         let output = Command::new("pass")
             .arg(entry.to_string())
             .output()
@@ -66,5 +71,47 @@ impl super::PassRepository for PassRepository {
         let password =
             str::from_utf8(&output.stdout).context("unable to interpret output as UTF-8 string")?;
         Ok((entry.username(), password.trim().to_string()))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PassEntry {
+    path_components: Vec<String>,
+}
+
+impl super::PassEntry for PassEntry {
+    fn contains(&self, pattern: &str) -> bool {
+        self.to_string().contains(pattern)
+    }
+
+    /// expect the last part of the entry to be username
+    fn username(&self) -> String {
+        // TODO: make sure all entries have >=1 components
+        self.path_components
+            .last()
+            .expect("no last component!")
+            .clone()
+    }
+}
+
+impl From<&Path> for PassEntry {
+    fn from(value: &Path) -> Self {
+        let mut path_components = value
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<String>>();
+        // strip extension
+        if let Some(file_name) = path_components.last_mut() {
+            file_name.truncate(file_name.len() - 4)
+        }
+
+        Self { path_components }
+    }
+}
+
+#[allow(clippy::to_string_trait_impl)]
+impl ToString for PassEntry {
+    fn to_string(&self) -> String {
+        self.path_components.join("/")
     }
 }

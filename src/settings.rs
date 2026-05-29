@@ -1,9 +1,9 @@
 use std::{
-    sync::{Arc, Condvar, LazyLock, Mutex, RwLock},
+    sync::{Arc, Condvar, LazyLock, Mutex},
     thread,
 };
 
-use super::PassRepository;
+use crate::pass::{PassRepository, REPOSITORY};
 
 pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| Mutex::new(Settings::new()));
 
@@ -27,12 +27,12 @@ impl Settings {
         }
     }
 
-    pub(crate) fn update_routine(&mut self, repository: Arc<RwLock<dyn PassRepository>>) {
+    pub(crate) fn update_routine(&mut self) {
         let fence = Arc::clone(&self.change_fence);
         thread::spawn(move || {
             let mut current_settings = SETTINGS.lock().expect("settings are poisoned!");
             loop {
-                let mut repo = repository.write().expect("repository is poisoned!");
+                let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
                 if let Some(pass_root) = current_settings.pass_root.as_ref() {
                     repo.refresh_entries(pass_root);
                 }

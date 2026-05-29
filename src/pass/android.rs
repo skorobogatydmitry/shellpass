@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use jni::{
     JValue, jni_sig, jni_str,
     objects::{JObject, JObjectArray, JString},
@@ -5,14 +7,14 @@ use jni::{
 use log::warn;
 use ndk_context::android_context;
 
-use crate::{android_interface::get_class, pass::PassEntry};
+use crate::android_interface::get_class;
 
 pub(crate) struct PassRepository {
     entries: Vec<PassEntry>,
     last_seen_pass: Option<String>,
 }
 
-impl super::PassRepository for PassRepository {
+impl super::PassRepository<PassEntry> for PassRepository {
     fn new() -> Self
     where
         Self: Sized,
@@ -27,11 +29,11 @@ impl super::PassRepository for PassRepository {
         self.entries.len()
     }
 
-    fn get_by_pattern(&self, _pattern: &str) -> Vec<super::PassEntry> {
+    fn get_by_pattern(&self, _pattern: &str) -> Vec<PassEntry> {
         Vec::new()
     }
 
-    fn retrieve(&self, _entry: &super::PassEntry) -> anyhow::Result<(String, String)> {
+    fn retrieve(&self, _entry: &PassEntry) -> anyhow::Result<(String, String)> {
         Ok(("dummy username".to_string(), "dummy password".to_string()))
     }
 
@@ -67,9 +69,7 @@ impl super::PassRepository for PassRepository {
             Ok(gpg_files) => {
                 self.entries = gpg_files
                     .into_iter()
-                    .map(|file_uri| PassEntry {
-                        path_components: file_uri.split("/").map(String::from).collect(),
-                    })
+                    .map(|file_uri| PassEntry::new(file_uri))
                     .collect();
                 self.last_seen_pass = Some(pass_root.to_string());
                 log::info!(
@@ -81,5 +81,39 @@ impl super::PassRepository for PassRepository {
             // TODO: show to the end-user
             Err(e) => warn!("unable to retrieve list of GPG files of {pass_root}: {e}"),
         }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PassEntry {
+    uri: String,
+}
+
+impl PassEntry {
+    fn new(uri: String) -> Self {
+        // TODO: validate
+        Self { uri }
+    }
+}
+
+impl super::PassEntry for PassEntry {
+    fn contains(&self, pattern: &str) -> bool {
+        todo!()
+    }
+
+    fn username(&self) -> String {
+        todo!()
+    }
+}
+
+impl ToString for PassEntry {
+    fn to_string(&self) -> String {
+        todo!()
+    }
+}
+
+impl From<&Path> for PassEntry {
+    fn from(value: &Path) -> Self {
+        todo!()
     }
 }

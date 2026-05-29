@@ -1,22 +1,14 @@
 //! Various methods to simplify working with Java classes
 
 use jni::{
-    Env, EnvUnowned, jni_sig, jni_str,
-    objects::{JClass, JObject, JString, JValue},
-    refs::{Global, GlobalRef},
+    Env, jni_sig, jni_str,
+    objects::{JClass, JObject, JValue},
+    refs::Global,
 };
-use jni_min_helper::jni_with_env;
-use log::debug;
 use ndk_context::android_context;
 use std::{
     collections::HashMap,
-    hash::Hash,
-    sync::{
-        LazyLock, Mutex, OnceLock,
-        mpsc::{Receiver, SyncSender},
-    },
-    thread,
-    time::Duration,
+    sync::{LazyLock, Mutex},
 };
 
 static CLASSES: LazyLock<Mutex<HashMap<&'static str, Global<JClass>>>> =

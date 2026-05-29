@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{App, android_interface::get_class, settings::SETTINGS};
+use crate::{android_interface::get_class, settings::SETTINGS};
 
 static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
@@ -29,7 +29,7 @@ impl super::OsUi for Ui {
         });
     }
 
-    fn pass_root_setting(&mut self, _app: &mut App) {
+    fn pass_root_setting(&mut self) {
         let settings = SETTINGS.lock().expect("settings are poisoned!");
         let pass_root_hint = match settings.pass_root() {
             Some(pass_root) => format!("current folder is {pass_root}"),

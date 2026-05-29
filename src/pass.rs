@@ -1,4 +1,10 @@
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{LazyLock, Mutex},
+};
+
+pub static REPOSITORY: LazyLock<Mutex<PassRepositoryImpl>> =
+    LazyLock::new(|| Mutex::new(PassRepositoryImpl::new()));
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -7,61 +13,34 @@ pub(crate) mod linux;
 
 /// Required interface for pass repository
 /// TODO: why Arc<RwLock<...>> require Send + Sync for the inner ?
-pub(crate) trait PassRepository: Send + Sync {
+pub(crate) trait PassRepository<Y: PassEntry>: Send + Sync {
     /// create new repository for the UI to access
     fn new() -> Self
     where
         Self: Sized;
     /// get all entries matching a given pattern
-    fn get_by_pattern(&self, pattern: &str) -> Vec<PassEntry>;
+    fn get_by_pattern(&self, pattern: &str) -> Vec<Y>;
     /// number of entries in the pass
     fn entries_count(&self) -> usize;
     /// get (username, password) of the given entry
-    fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)>;
+    fn retrieve(&self, entry: &Y) -> anyhow::Result<(String, String)>;
     /// update list of entries within the provided pass repository root
     fn refresh_entries(&mut self, pass_root: &str);
 }
 
 /// a single entry in the pass repository
 /// it reflests the path to entry within the pass repository
-#[derive(Clone)]
-pub(crate) struct PassEntry {
-    path_components: Vec<String>,
+pub(crate) trait PassEntry: for<'a> From<&'a Path> + ToString + Clone {
+    fn contains(&self, pattern: &str) -> bool;
+    fn username(&self) -> String;
 }
 
-impl PassEntry {
-    fn contains(&self, pattern: &str) -> bool {
-        self.to_string().contains(pattern)
-    }
+#[cfg(target_os = "linux")]
+pub(crate) type PassRepositoryImpl = linux::PassRepository;
+#[cfg(target_os = "android")]
+pub(crate) type PassRepositoryImpl = android::PassRepository;
 
-    /// expect the last part of the entry to be username
-    fn username(&self) -> String {
-        // TODO: make sure all entries have >=1 components
-        self.path_components
-            .last()
-            .expect("no last component!")
-            .clone()
-    }
-}
-
-impl From<&Path> for PassEntry {
-    fn from(value: &Path) -> Self {
-        let mut path_components = value
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().to_string())
-            .collect::<Vec<String>>();
-        // strip extension
-        if let Some(file_name) = path_components.last_mut() {
-            file_name.truncate(file_name.len() - 4)
-        }
-
-        Self { path_components }
-    }
-}
-
-#[allow(clippy::to_string_trait_impl)]
-impl ToString for PassEntry {
-    fn to_string(&self) -> String {
-        self.path_components.join("/")
-    }
-}
+#[cfg(target_os = "linux")]
+pub(crate) type PassEntryImpl = linux::PassEntry;
+#[cfg(target_os = "android")]
+pub(crate) type PassEntryImpl = android::PassEntry;
