@@ -4,9 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, anyhow};
-use gpgme::Protocol;
+use anyhow::Context;
+use pgp::composed::Message;
+
 use walkdir::WalkDir;
+
+use crate::settings::GnuPGSecret;
 
 use super::PassEntry as _PassEntry;
 
@@ -40,9 +43,10 @@ impl super::PassRepository<PassEntry> for PassRepository {
                             .is_some()
                     {
                         // UNWRAP: all paths have pass_root as prefix
-                        Some(PassEntry::from(
+                        Some(PassEntry::from((
+                            &pass_root,
                             e.into_path().strip_prefix(&pass_root).unwrap(),
-                        ))
+                        )))
                     } else {
                         None
                     }
@@ -64,39 +68,28 @@ impl super::PassRepository<PassEntry> for PassRepository {
         self.entries.len()
     }
 
-    fn retrieve(&self, entry: &PassEntry) -> anyhow::Result<(String, String)> {
-        // let key_file = PathBuf::from("/home/dk/.gnupg/pubring.kbx");
-        let mut ctx = gpgme::Context::from_protocol(Protocol::OpenPgp)
-            .context("cannot initialize context for GnuPG")?;
-        let root = self
-            .last_used_root
-            .as_ref()
-            .ok_or(anyhow!(
-                "no root to retrieve entries (it's the program state consistency problem)"
-            ))?
-            .clone();
-        let full_entry_path = root.join(entry.path());
-        let mut input = fs::File::open(full_entry_path).context(entry.clone())?;
-        let mut output = Vec::new();
-
-        ctx.decrypt(&mut input, &mut output)
-            .context("error decrypting an entry")?;
-
-        Ok((
-            entry.username(),
-            String::from_utf8(output)?.trim().to_string(),
-        ))
+    fn retrieve(&self, entry: &PassEntry, secret: GnuPGSecret) -> anyhow::Result<(String, String)> {
+        let encrypted_data = entry.read()?;
+        let msg = Message::from_bytes(encrypted_data.as_slice())
+            .context("error on constructing encrypted message")?;
+        // TODO: check if / how to make a decryption faster in debug with TheRing
+        let (mut decrypted, _) = msg
+            .decrypt_the_ring(secret.get_ring(), true)
+            .context("error on decrypting the message")?;
+        Ok((entry.username(), decrypted.as_data_string()?))
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct PassEntry {
+    pass_root: PathBuf,
     path_components: Vec<String>,
 }
 
 impl PassEntry {
-    fn path(&self) -> String {
-        format!("{}.gpg", self.path_components.join("/"))
+    fn path(&self) -> PathBuf {
+        self.pass_root
+            .join(format!("{}.gpg", self.path_components.join("/")))
     }
 }
 
@@ -113,20 +106,29 @@ impl super::PassEntry for PassEntry {
             .expect("no last component!")
             .clone()
     }
+    fn read(&self) -> anyhow::Result<Vec<u8>> {
+        fs::read(self.path()).context("unable to read encrypted pass entry")
+    }
 }
 
-impl From<&Path> for PassEntry {
-    fn from(value: &Path) -> Self {
+/// contruct the entry from root (PathBuf) and full path (Path)
+/// both are needed to know full path (to Self::read) and its suffix (to impl Display)
+impl From<(&PathBuf, &Path)> for PassEntry {
+    fn from(value: (&PathBuf, &Path)) -> Self {
         let mut path_components = value
+            .1
             .components()
             .map(|c| c.as_os_str().to_string_lossy().to_string())
             .collect::<Vec<String>>();
         // strip extension
         if let Some(file_name) = path_components.last_mut() {
-            file_name.truncate(file_name.len() - 4)
+            file_name.truncate(file_name.len() - 4) // cut .gpg out
         }
 
-        Self { path_components }
+        Self {
+            path_components,
+            pass_root: value.0.clone(),
+        }
     }
 }
 

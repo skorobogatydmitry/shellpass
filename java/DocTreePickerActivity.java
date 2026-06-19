@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 
-public class BootstrapActivity extends Activity {
+public class DocTreePickerActivity extends Activity {
 
     // make the override for nativeOnActivityResult visible
     static {

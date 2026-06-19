@@ -1,22 +1,39 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
+use std::sync::{LazyLock, Mutex};
+
 use egui::{InnerResponse, Layout, Popup, Response, ScrollArea, Ui};
 
 #[cfg(target_os = "android")]
-pub(crate) mod android;
+mod android;
 #[cfg(target_os = "linux")]
 mod linux;
 
-trait OsUi {
+pub(crate) trait OsUi {
     fn top_padding(&mut self);
     fn pass_root_setting(&mut self);
+    fn gnupg_settings(&mut self);
 }
 
 use crate::{
     finder::FINDER,
     pass::{PassRepository, REPOSITORY},
+    settings::SETTINGS,
 };
+
+static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
+    Mutex::new(UiState {
+        partial_gnupg_secret_key: String::new(),
+        partial_gnupg_passphrase: String::new(),
+    })
+});
+
+struct UiState {
+    // that's a UI temporary data storage
+    partial_gnupg_secret_key: String,
+    partial_gnupg_passphrase: String,
+}
 
 fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
@@ -45,9 +62,10 @@ pub(crate) fn main(ui: &mut Ui) {
                     }
                     drop(finder);
                     // keep focus on the main input unless there's a settings menu opened
-                    if settings_menu_resp.is_none() {
-                        resp.request_focus();
-                    }
+                    // TODO: take gnupg settings into account
+                    // if settings_menu_resp.is_none() {
+                    //     resp.request_focus();
+                    // }
                 });
             });
         });
@@ -63,14 +81,37 @@ pub(crate) fn main(ui: &mut Ui) {
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         finder.last_match.iter().for_each(|entry| {
             // TODO: notification on click
-            if ui.selectable_label(false, entry.to_string()).clicked() {
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                match repository.retrieve(entry) {
-                    Ok(data) => {
-                        ui.copy_text(format!("{}:{}", data.0, data.1));
+            let entry_button = ui.selectable_label(false, entry.to_string());
+            // TODO: avoid re-locking settings
+            let settings = SETTINGS.lock().expect("settings are poinsoned!");
+            let settings_has_gnupg_config = settings.has_gnupg_config();
+            drop(settings);
+            let gnupg_configuration_finished = if !settings_has_gnupg_config {
+                let popup_resp = egui::Popup::from_toggle_button_response(&entry_button)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
+                        ui.vertical_centered_justified(|ui| {
+                            ui.gnupg_settings();
+                        });
+                    });
+                popup_resp
+                    .map(|resp| resp.response.should_close())
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if entry_button.clicked() || gnupg_configuration_finished {
+                let settings = SETTINGS.lock().expect("settings are poinsoned!");
+                let gnupg_secret = settings.get_gnupg_secret();
+                if let Some(gnupg_secret) = gnupg_secret {
+                    let repository = REPOSITORY.lock().expect("repository is poisoned!");
+                    match repository.retrieve(entry, gnupg_secret) {
+                        Ok(data) => {
+                            ui.copy_text(format!("{}:{}", data.0, data.1));
+                        }
+                        // TODO: notify the end-user
+                        Err(e) => log::error!("unable to retrieve an entry: {e:?}"),
                     }
-                    // TODO: notify the end-user
-                    Err(e) => log::error!("unable to retrieve an entry: {e}"),
                 }
             }
         });

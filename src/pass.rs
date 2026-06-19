@@ -3,6 +3,8 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
+use crate::settings::GnuPGSecret;
+
 pub static REPOSITORY: LazyLock<Mutex<PassRepositoryImpl>> =
     LazyLock::new(|| Mutex::new(PassRepositoryImpl::new()));
 
@@ -22,7 +24,7 @@ pub(crate) trait PassRepository<Y: PassEntry> {
     /// number of entries in the pass
     fn entries_count(&self) -> usize;
     /// get (username, password) of the given entry
-    fn retrieve(&self, entry: &Y) -> anyhow::Result<(String, String)>;
+    fn retrieve(&self, entry: &Y, secret: GnuPGSecret) -> anyhow::Result<(String, String)>;
     /// update list of entries within the provided pass repository root
     fn refresh_entries(&mut self, pass_root: &str);
 }
@@ -32,6 +34,7 @@ pub(crate) trait PassRepository<Y: PassEntry> {
 pub(crate) trait PassEntry: Display + Clone {
     fn contains(&self, pattern: &str) -> bool;
     fn username(&self) -> String;
+    fn read(&self) -> anyhow::Result<Vec<u8>>;
 }
 
 #[cfg(target_os = "linux")]

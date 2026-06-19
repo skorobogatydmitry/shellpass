@@ -69,4 +69,5 @@ cargo apk2 run --lib
 - Make a button to close application
 - Make interface scale factor user-defined
 - Make a housekeeper to crash program if any thread crashes
-- Persist settings
+- Persist settings, excluding password
+- Show entries as a tree

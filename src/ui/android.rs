@@ -67,13 +67,13 @@ impl super::OsUi for Ui {
     }
 }
 
-/// launch prepared file picker activity
+/// launch the prepared file picker activity
 /// relies on that load_file_picker_activity ran successfully beforehand
 fn run_picker() -> jni::errors::Result<()> {
     jni_with_env(|env| -> jni::errors::Result<()> {
         let ctx =
             unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
-        let class_raw = get_class(env, "java.BootstrapActivity")?.as_raw();
+        let class_raw = get_class(env, "java.DocTreePickerActivity")?.as_raw();
         // UNSAFE: cast the pointer obtained above
         let class_ref = unsafe { JObject::from_raw(env, class_raw) };
 
@@ -114,9 +114,9 @@ pub fn load_file_picker_activity() -> jni::errors::Result<()> {
     Ok(())
 }
 
-/// impls the respective Java function, see java/BootstrapActivity.java
+/// impls the respective Java function, see java/DocTreePickerActivity.java
 #[unsafe(no_mangle)]
-extern "C" fn Java_java_BootstrapActivity_nativeOnActivityResult(
+extern "C" fn Java_java_DocTreePickerActivity_nativeOnActivityResult(
     mut env: EnvUnowned,
     _this: JObject,
     _request_code: i32,
