@@ -1,4 +1,5 @@
 use std::{
+    hint::black_box,
     sync::{Arc, Condvar, LazyLock, Mutex},
     thread,
 };
@@ -88,8 +89,10 @@ impl Settings {
 
     /// reset the whole passphrase to the value provided
     /// make sure we don't leak tails of strings - it's always zero-ed
+    /// TODO: avoid optimization on this method
     pub(crate) fn set_gnupg_passphrase(&mut self, passphrase: String) {
-        if let Some(pp) = self.gnupg_passphrase.take().as_mut() {
+        let pp = black_box(self.gnupg_passphrase.take());
+        if let Some(mut pp) = pp {
             // UNSAFE: we drain the content just after the loop => no need to be valid seq
             for byte in unsafe { pp.as_bytes_mut() } {
                 *byte = 0u8;
