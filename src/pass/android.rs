@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use anyhow::Context;
 use jni::{
     JValue, jni_sig, jni_str,
     objects::{JObject, JObjectArray, JString},
@@ -39,14 +40,6 @@ impl super::PassRepository<PassEntry> for PassRepository {
             .iter()
             .filter(|e| e.contains(pattern))
             .collect()
-    }
-
-    fn retrieve(
-        &self,
-        _entry: &PassEntry,
-        _secret: GnuPGSecret,
-    ) -> anyhow::Result<(String, String)> {
-        Ok(("dummy username".to_string(), "dummy password".to_string()))
     }
 
     fn refresh_entries(&mut self, pass_root: &str) {
@@ -115,6 +108,7 @@ impl PassEntry {
         }
     }
 
+    /// makes user-digestable relative (from root) path within the repo
     fn entry_path(&self) -> String {
         // TODO: validate
         let real_root_path = uri_path(&self.root).expect("cannot get entry's root path");
@@ -127,16 +121,40 @@ impl PassEntry {
 }
 
 impl super::PassEntry for PassEntry {
+    /// search for match only within relative path
     fn contains(&self, pattern: &str) -> bool {
         self.entry_path().contains(pattern)
     }
 
     fn username(&self) -> String {
-        todo!()
+        // TODO: store the convention in common place
+        self.entry_path()
+            .split("/")
+            .last()
+            .unwrap_or("n/a")
+            .to_string()
     }
 
     fn read(&self) -> anyhow::Result<Vec<u8>> {
-        todo!()
+        jni_min_helper::jni_with_env(|env| {
+            let ctx =
+                unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
+            let jni_secret_key_uri =
+                env.new_string(format!("{}{}", self.root, self.suffix).as_str())?;
+            let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
+            let bytes_jobj = env
+                .call_static_method(
+                    &fs_adapter,
+                    jni_str!("readFile"),
+                    jni_sig!((android.content.Context, java.lang.String) -> [byte]),
+                    &[JValue::Object(&ctx), JValue::Object(&jni_secret_key_uri)],
+                )?
+                .l()?;
+            let byte_array =
+                unsafe { jni::objects::JByteArray::from_raw(env, bytes_jobj.as_raw()) };
+            env.convert_byte_array(&byte_array)
+        })
+        .context("unable to read entry file")
     }
 }
 

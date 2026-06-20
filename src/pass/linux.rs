@@ -4,14 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
-use pgp::composed::Message;
-
-use walkdir::WalkDir;
-
-use crate::settings::GnuPGSecret;
-
 use super::PassEntry as _PassEntry;
+use anyhow::Context;
+use walkdir::WalkDir;
 
 /// Simple implementation for Linux
 /// - list .gpg files in ~/.password-store to find all entries
@@ -67,17 +62,6 @@ impl super::PassRepository<PassEntry> for PassRepository {
     fn entries_count(&self) -> usize {
         self.entries.len()
     }
-
-    fn retrieve(&self, entry: &PassEntry, secret: GnuPGSecret) -> anyhow::Result<(String, String)> {
-        let encrypted_data = entry.read()?;
-        let msg = Message::from_bytes(encrypted_data.as_slice())
-            .context("error on constructing encrypted message")?;
-        // TODO: check if / how to make a decryption faster in debug with TheRing
-        let (mut decrypted, _) = msg
-            .decrypt_the_ring(secret.get_ring(), true)
-            .context("error on decrypting the message")?;
-        Ok((entry.username(), decrypted.as_data_string()?))
-    }
 }
 
 #[derive(Clone)]
@@ -106,6 +90,8 @@ impl super::PassEntry for PassEntry {
             .expect("no last component!")
             .clone()
     }
+
+    /// as simple as reading the file with its path
     fn read(&self) -> anyhow::Result<Vec<u8>> {
         fs::read(self.path()).context("unable to read encrypted pass entry")
     }
