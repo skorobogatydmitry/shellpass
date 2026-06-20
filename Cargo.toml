@@ -1,6 +1,6 @@
 [package]
 name = "shellpass"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [lib]
@@ -45,6 +45,10 @@ exported = true
 name = "android.app.lib_name"
 value = "shellpass"
 
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.MAIN"]
+categories = ["android.intent.category.LAUNCHER"]
+
 [[package.metadata.android.application.activity]]
 name = "java.DocTreePickerActivity"
 exported = false
@@ -52,3 +56,7 @@ exported = false
 [[package.metadata.android.application.activity]]
 name = "java.FilePickerActivity"
 exported = false
+
+[package.metadata.android.signing.release]
+path = "release.keystore"
+keystore_password = "@-:8e3zWE;z-zQmC._as\\Ei"

@@ -63,6 +63,23 @@ export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/platform-tools:${ANDROID_
 cargo apk2 run --lib
 ```
 
+### Release & keystore
+
+This command was used to generate the keys:
+```
+keytool -genkeypair -v \
+  -keystore release.keystore \
+  -alias ShellPassKey \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -storepass "@-:8e3zWE;z-zQmC._as\Ei" \
+  -keypass "@-:8e3zWE;z-zQmC._as\Ei" \
+  -dname "CN=LazyDeveloper,O=Personal,C=WE"
+```
+
+This app is not (and possibly won't ever be) Google Play -ready by any means.
+
 # TODO
 - TODOs in the code
 - Add user-visible notifications

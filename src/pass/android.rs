@@ -8,10 +8,7 @@ use jni::{
 use log::warn;
 use ndk_context::android_context;
 
-use crate::{
-    android_interface::{ActivityClass, get_class, uri_path},
-    settings::GnuPGSecret,
-};
+use crate::android_interface::{ActivityClass, get_class, uri_path};
 
 use super::PassEntry as _PassEntry;
 
