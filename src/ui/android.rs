@@ -83,6 +83,76 @@ impl super::OsUi for Ui {
         true
     }
 
+    fn to_clipboard(&self, s: String) {
+        let result = jni_with_env(|env| -> jni::errors::Result<()> {
+            let ctx =
+                unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
+            let service_name = env.new_string("clipboard")?;
+            let clipboard_service = env
+                .call_method(
+                    ctx,
+                    jni_str!("getSystemService"),
+                    jni_sig!((java.lang.String) -> java.lang.Object),
+                    &[JValue::Object(&service_name)],
+                )?
+                .l()?;
+
+            let label = env.new_string("username:password from pass")?;
+            let text_jstr = env.new_string(s.as_str())?;
+
+            let clip_data = env.call_static_method(
+                jni_str!("android/content/ClipData"),
+                jni_str!("newPlainText"),
+                jni_sig!((java.lang.CharSequence, java.lang.CharSequence) -> android.content.ClipData),
+                &[JValue::Object(&label), JValue::Object(&text_jstr)],
+            )?.l()?;
+
+            let description = env
+                .call_method(
+                    &clip_data,
+                    jni_str!("getDescription"),
+                    jni_sig!(() -> android.content.ClipDescription),
+                    &[],
+                )?
+                .l()?;
+
+            let extras = env.new_object(
+                jni_str!("android/os/PersistableBundle"),
+                jni_sig!(() -> ()),
+                &[],
+            )?;
+
+            let key = env.new_string("android.content.extra.IS_SENSITIVE")?;
+            env.call_method(
+                &extras,
+                jni_str!("putBoolean"),
+                jni_sig!((java.lang.String, boolean) -> ()),
+                &[JValue::Object(&key), JValue::Bool(true)],
+            )?;
+
+            env.call_method(
+                &description,
+                jni_str!("setExtras"),
+                jni_sig!((android.os.PersistableBundle) -> ()),
+                &[JValue::Object(&extras)],
+            )?;
+
+            env.call_method(
+                &clipboard_service,
+                jni_str!("setPrimaryClip"),
+                jni_sig!((android.content.ClipData) -> ()),
+                &[JValue::Object(&clip_data)],
+            )?;
+
+            Ok(())
+        });
+
+        // TODO: show to the end-user / make sure the error doesn't contain the string
+        if let Err(e) = result {
+            log::error!("unable to send password to clipboard: {e:#}");
+        }
+    }
+
     fn load_secret_key() -> JoinHandle<()> {
         thread::spawn(|| {
             match read_secret_key() {

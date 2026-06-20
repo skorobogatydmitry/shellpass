@@ -25,6 +25,8 @@ pub(crate) trait OsUi {
     /// it must spawn a background thread and return its handle to avoid locking UI
     /// it's this thread's duty to update settings accordingly
     fn load_secret_key() -> JoinHandle<()>;
+    /// send String to clipboard
+    fn to_clipboard(&self, s: String);
 }
 
 use crate::{
@@ -196,7 +198,7 @@ pub(crate) fn main(ui: &mut Ui) {
                                         REPOSITORY.lock().expect("repository is poisoned!");
                                     match repository.retrieve(entry, gnupg_secret) {
                                         Ok(data) => {
-                                            ui.copy_text(format!("{}:{}", data.0, data.1));
+                                            ui.to_clipboard(format!("{}:{}", data.0, data.1));
                                         }
                                         // TODO: notify the end-user
                                         Err(e) => log::error!("unable to retrieve an entry: {e:?}"),

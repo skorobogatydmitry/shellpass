@@ -72,3 +72,4 @@ cargo apk2 run --lib
 - Persist settings, excluding password
 - Show entries as a tree
 - mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`
+- make sure decrypted data is handled safely

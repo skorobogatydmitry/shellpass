@@ -16,6 +16,10 @@ impl super::OsUi for Ui {
     fn top_padding(&mut self) {}
     fn bottom_padding(&mut self) {}
 
+    fn to_clipboard(&self, s: String) {
+        self.copy_text(s);
+    }
+
     fn pass_root_setting(&mut self) {
         self.label("pass repository root");
         let mut settings = SETTINGS.lock().expect("settings are poisoned");
