@@ -4,16 +4,19 @@
 use std::sync::{LazyLock, Mutex};
 
 use egui::{InnerResponse, Layout, Popup, Response, ScrollArea, Ui};
+use pgp::{composed::SignedSecretKey, types::KeyDetails};
 
 #[cfg(target_os = "android")]
-mod android;
+pub(crate) mod android;
 #[cfg(target_os = "linux")]
 mod linux;
 
 pub(crate) trait OsUi {
     fn top_padding(&mut self);
     fn pass_root_setting(&mut self);
-    fn gnupg_settings(&mut self);
+    /// represet platform-specific part of settings
+    fn gnupg_secret_key_settings(&mut self) -> Response;
+    fn load_secret_key(passphrase: Option<&str>) -> anyhow::Result<SignedSecretKey>;
 }
 
 use crate::{
@@ -35,14 +38,73 @@ struct UiState {
     partial_gnupg_passphrase: String,
 }
 
+/// menu with all the settings
 fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ui.vertical_centered_justified(|ui| {
-                ui.pass_root_setting();
+            ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                ui.vertical_centered_justified(|ui| {
+                    ui.pass_root_setting();
+                    gnupg_settings(ui);
+                });
             });
         })
+}
+
+/// part of the menu with GnuPG settings
+fn gnupg_settings(ui: &mut Ui) {
+    let mut settings = SETTINGS.lock().expect("settings are poisoned!");
+    let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
+
+    let settings_key_digest = settings
+        .gnupg_secret_key
+        .as_ref()
+        .map(|k| k.primary_key.fingerprint().to_string());
+
+    ui.label(if settings.gnupg_passphrase_set() {
+        "key passphrase is set"
+    } else {
+        "no passphrase set"
+    });
+
+    let passphrase_ui_buf = &mut ui_state.partial_gnupg_passphrase;
+    let passphrase_edit = ui.add(
+        egui::TextEdit::singleline(passphrase_ui_buf)
+            .hint_text("passphrase for secret key")
+            .password(true),
+    );
+    if passphrase_edit.lost_focus() {
+        let mut pp = String::new();
+        std::mem::swap(passphrase_ui_buf, &mut pp);
+        settings.set_gnupg_passphrase(pp);
+    }
+    drop(ui_state);
+
+    ui.label(match settings_key_digest {
+        None => "no secret key loaded".to_string(),
+        Some(settings_digest) => format!(
+            "current key digest\n{}",
+            settings_digest.to_ascii_uppercase()
+        ),
+    });
+
+    let secret_key_resp = ui.gnupg_secret_key_settings();
+
+    // try to initialize the key using digest and passphrase
+    // digest in the settings can't be used here, as it can only be set if the previous load succeeded
+    // so, even for passphrase change we rely on that the buffer has digest to load
+    if secret_key_resp.lost_focus() || passphrase_edit.lost_focus() {
+        match Ui::load_secret_key(settings.gnupg_passphrase()) {
+            Ok(secret_key) => {
+                settings.gnupg_secret_key = Some(secret_key);
+            }
+            Err(e) => {
+                // TODO: show to the end-user
+                log::error!("could not load secret key: {e}");
+            }
+        }
+    }
 }
 
 pub(crate) fn main(ui: &mut Ui) {
@@ -91,7 +153,7 @@ pub(crate) fn main(ui: &mut Ui) {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show(|ui| {
                         ui.vertical_centered_justified(|ui| {
-                            ui.gnupg_settings();
+                            gnupg_settings(ui);
                         });
                     });
                 popup_resp
