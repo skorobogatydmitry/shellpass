@@ -104,8 +104,9 @@ impl Settings {
     pub(crate) fn gnupg_passphrase_set(&self) -> bool {
         self.gnupg_passphrase.is_some()
     }
+    #[allow(dead_code)] // android only
     pub(crate) fn gnupg_passphrase(&self) -> Option<&str> {
-        self.gnupg_passphrase.as_ref().map(|p| p.as_str())
+        self.gnupg_passphrase.as_deref()
     }
 }
 

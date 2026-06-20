@@ -6,10 +6,8 @@ use std::{
     thread::JoinHandle,
 };
 
-use egui::{
-    CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, TopBottomPanel, Ui,
-};
-use pgp::{composed::SignedSecretKey, types::KeyDetails};
+use egui::{CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
+use pgp::types::KeyDetails;
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -42,8 +40,9 @@ static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
     })
 });
 
+// UI temporary data storage
 struct UiState {
-    // that's a UI temporary data storage
+    #[allow(dead_code)] // only for android
     partial_gnupg_secret_key: String,
     partial_gnupg_passphrase: String,
 }

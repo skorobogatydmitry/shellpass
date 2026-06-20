@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
-use egui::{Response, Ui};
+use egui::Ui;
 use log::info;
 use pgp::composed::{Deserializable, SignedSecretKey};
 
