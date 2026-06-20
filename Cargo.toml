@@ -48,3 +48,7 @@ value = "shellpass"
 [[package.metadata.android.application.activity]]
 name = "java.DocTreePickerActivity"
 exported = false
+
+[[package.metadata.android.application.activity]]
+name = "java.FilePickerActivity"
+exported = false

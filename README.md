@@ -71,3 +71,4 @@ cargo apk2 run --lib
 - Make a housekeeper to crash program if any thread crashes
 - Persist settings, excluding password
 - Show entries as a tree
+- mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`

@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::Path};
+use std::fmt::Display;
 
 use jni::{
     JValue, jni_sig, jni_str,
@@ -7,7 +7,10 @@ use jni::{
 use log::warn;
 use ndk_context::android_context;
 
-use crate::android_interface::{get_class, uri_path};
+use crate::{
+    android_interface::{ActivityClass, get_class, uri_path},
+    settings::GnuPGSecret,
+};
 
 use super::PassEntry as _PassEntry;
 
@@ -38,7 +41,11 @@ impl super::PassRepository<PassEntry> for PassRepository {
             .collect()
     }
 
-    fn retrieve(&self, _entry: &PassEntry) -> anyhow::Result<(String, String)> {
+    fn retrieve(
+        &self,
+        _entry: &PassEntry,
+        _secret: GnuPGSecret,
+    ) -> anyhow::Result<(String, String)> {
         Ok(("dummy username".to_string(), "dummy password".to_string()))
     }
 
@@ -50,7 +57,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
             let uri_jstr = env.new_string(pass_root)?;
 
             // Uri.parse(uriStr)
-            let fs_adapter = get_class(env, "java/FSAdapter")?;
+            let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
             let files_jobj = env
                 .call_static_method(
                     &fs_adapter,
@@ -125,6 +132,10 @@ impl super::PassEntry for PassEntry {
     }
 
     fn username(&self) -> String {
+        todo!()
+    }
+
+    fn read(&self) -> anyhow::Result<Vec<u8>> {
         todo!()
     }
 }

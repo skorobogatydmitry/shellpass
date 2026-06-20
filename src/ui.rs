@@ -1,9 +1,14 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::sync::{LazyLock, Mutex};
+use std::{
+    sync::{LazyLock, Mutex},
+    thread::JoinHandle,
+};
 
-use egui::{InnerResponse, Layout, Popup, Response, ScrollArea, Ui};
+use egui::{
+    CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, TopBottomPanel, Ui,
+};
 use pgp::{composed::SignedSecretKey, types::KeyDetails};
 
 #[cfg(target_os = "android")]
@@ -13,10 +18,15 @@ mod linux;
 
 pub(crate) trait OsUi {
     fn top_padding(&mut self);
+    fn bottom_padding(&mut self);
     fn pass_root_setting(&mut self);
     /// represet platform-specific part of settings
-    fn gnupg_secret_key_settings(&mut self) -> Response;
-    fn load_secret_key(passphrase: Option<&str>) -> anyhow::Result<SignedSecretKey>;
+    /// must return whether the setting is finalized (ready to read the key)
+    fn gnupg_secret_key_settings(&mut self) -> bool;
+    /// this method is called when both - password and secret key path/digest are ready to load the key data
+    /// it must spawn a background thread and return its handle to avoid locking UI
+    /// it's this thread's duty to update settings accordingly
+    fn load_secret_key() -> JoinHandle<()>;
 }
 
 use crate::{
@@ -89,93 +99,128 @@ fn gnupg_settings(ui: &mut Ui) {
         ),
     });
 
-    let secret_key_resp = ui.gnupg_secret_key_settings();
+    let secret_key_ready = ui.gnupg_secret_key_settings();
 
     // try to initialize the key using digest and passphrase
     // digest in the settings can't be used here, as it can only be set if the previous load succeeded
     // so, even for passphrase change we rely on that the buffer has digest to load
-    if secret_key_resp.lost_focus() || passphrase_edit.lost_focus() {
-        match Ui::load_secret_key(settings.gnupg_passphrase()) {
-            Ok(secret_key) => {
-                settings.gnupg_secret_key = Some(secret_key);
-            }
-            Err(e) => {
-                // TODO: show to the end-user
-                log::error!("could not load secret key: {e}");
-            }
-        }
+    if secret_key_ready || passphrase_edit.lost_focus() {
+        //
+        let _sk_jh = Ui::load_secret_key();
     }
 }
 
 pub(crate) fn main(ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
-    ui.vertical_centered_justified(|ui| {
+    Panel::top("info").show_inside(ui, |ui| {
         ui.top_padding();
-        ui.horizontal(|ui| {
+        ui.vertical_centered_justified(|ui| {
+            let repository = REPOSITORY.lock().expect("repository is poisoned!");
+            ui.label(match repository.entries_count() {
+                0 => "no entries found, check settings".to_string(),
+                count => format!("{} entries in your pass", count),
+            })
+        });
+    });
+
+    let bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
+        // search bar + settings button
+        let responses = ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 let image = egui::include_image!("../assets/cog.png");
                 let settings_button_resp = ui.button(image);
                 let settings_menu_resp = settings_menu(&settings_button_resp);
                 ui.centered_and_justified(|ui| {
                     let mut finder = FINDER.lock().expect("finder is poisoned!");
-                    let resp = ui.text_edit_singleline(&mut finder.pattern).highlight();
-                    if resp.changed() {
+                    let seach_bar_resp = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut finder.pattern)
+                                .hint_text("start typing to search"),
+                        )
+                        .highlight();
+                    if seach_bar_resp.changed() {
                         finder.change_fence.notify_one();
                     }
                     drop(finder);
-                    // keep focus on the main input unless there's a settings menu opened
-                    // TODO: take gnupg settings into account
-                    // if settings_menu_resp.is_none() {
-                    //     resp.request_focus();
-                    // }
-                });
-            });
+                    (seach_bar_resp, settings_menu_resp)
+                })
+            })
         });
-
-        let repository = REPOSITORY.lock().expect("repository is poisoned!");
-        ui.label(match repository.entries_count() {
-            0 => "no entries found, check settings".to_string(),
-            count => format!("{} entries in your pass, start typing to search", count),
-        });
+        ui.bottom_padding();
+        responses
     });
 
-    let finder = FINDER.lock().expect("finder is poisoned!");
-    ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        finder.last_match.iter().for_each(|entry| {
-            // TODO: notification on click
-            let entry_button = ui.selectable_label(false, entry.to_string());
-            // TODO: avoid re-locking settings
-            let settings = SETTINGS.lock().expect("settings are poinsoned!");
-            let settings_has_gnupg_config = settings.has_gnupg_config();
-            drop(settings);
-            let gnupg_configuration_finished = if !settings_has_gnupg_config {
-                let popup_resp = egui::Popup::from_toggle_button_response(&entry_button)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .show(|ui| {
-                        ui.vertical_centered_justified(|ui| {
-                            gnupg_settings(ui);
+    // list of matching entries
+    let mut any_popup_opened = false;
+    CentralPanel::no_frame().show_inside(ui, |ui| {
+        let repository = REPOSITORY.lock().expect("repository is poisoned!");
+        let entries_count = repository.entries_count();
+        drop(repository);
+        if entries_count > 0 {
+            let finder = FINDER.lock().expect("finder is poisoned!");
+            match finder.last_match.len() {
+                0 => {
+                    ui.label("no matching entries");
+                }
+                _ => {
+                    ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                        finder.last_match.iter().for_each(|entry| {
+                            // TODO: notification on click
+                            let entry_button = ui.selectable_label(false, entry.to_string());
+                            // TODO: avoid re-locking settings
+                            let settings = SETTINGS.lock().expect("settings are poinsoned!");
+                            let settings_has_gnupg_config = settings.has_gnupg_config();
+                            drop(settings);
+                            let gnupg_configuration_finished = if !settings_has_gnupg_config {
+                                let popup_resp =
+                                    egui::Popup::from_toggle_button_response(&entry_button)
+                                        .close_behavior(
+                                            egui::PopupCloseBehavior::CloseOnClickOutside,
+                                        )
+                                        .show(|ui| {
+                                            ui.vertical_centered_justified(|ui| {
+                                                gnupg_settings(ui);
+                                            });
+                                        });
+                                any_popup_opened = true;
+                                popup_resp
+                                    .map(|resp| resp.response.should_close())
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            };
+                            if entry_button.clicked() || gnupg_configuration_finished {
+                                let settings = SETTINGS.lock().expect("settings are poinsoned!");
+                                let gnupg_secret = settings.get_gnupg_secret();
+                                if let Some(gnupg_secret) = gnupg_secret {
+                                    let repository =
+                                        REPOSITORY.lock().expect("repository is poisoned!");
+                                    match repository.retrieve(entry, gnupg_secret) {
+                                        Ok(data) => {
+                                            ui.copy_text(format!("{}:{}", data.0, data.1));
+                                        }
+                                        // TODO: notify the end-user
+                                        Err(e) => log::error!("unable to retrieve an entry: {e:?}"),
+                                    }
+                                }
+                            }
                         });
                     });
-                popup_resp
-                    .map(|resp| resp.response.should_close())
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            if entry_button.clicked() || gnupg_configuration_finished {
-                let settings = SETTINGS.lock().expect("settings are poinsoned!");
-                let gnupg_secret = settings.get_gnupg_secret();
-                if let Some(gnupg_secret) = gnupg_secret {
-                    let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                    match repository.retrieve(entry, gnupg_secret) {
-                        Ok(data) => {
-                            ui.copy_text(format!("{}:{}", data.0, data.1));
-                        }
-                        // TODO: notify the end-user
-                        Err(e) => log::error!("unable to retrieve an entry: {e:?}"),
-                    }
                 }
             }
-        });
+        }
     });
+
+    // TODO: figure why
+    // - it doesn't autp-resize interface on android
+    // - why it doesn't request focus on Linux
+    // keep focus on the main input unless there's a settings menu opened
+    // let (search_bar_resp, settings_menu_resp) = (
+    //     bottom_bar_resps.inner.inner.inner.inner.0,
+    //     bottom_bar_resps.inner.inner.inner.inner.1,
+    // );
+    // if settings_menu_resp.is_none() && !any_popup_opened {
+    //     log::info!("switchin to search bar");
+    //     search_bar_resp.request_focus();
+    // }
 }

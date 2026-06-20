@@ -12,16 +12,34 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
-static CLASSES: LazyLock<Mutex<HashMap<&'static str, Global<JClass>>>> =
+static CLASSES: LazyLock<Mutex<HashMap<ActivityClass, Global<JClass>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// enum to store available activity classes
+#[derive(PartialEq, Eq, Hash)]
+pub(crate) enum ActivityClass {
+    DocTreePickerActivity,
+    FilePickerActivity,
+    FSAdapter,
+}
+
+impl ActivityClass {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::DocTreePickerActivity => "java.DocTreePickerActivity",
+            Self::FilePickerActivity => "java.FilePickerActivity",
+            Self::FSAdapter => "java.FSAdapter",
+        }
+    }
+}
 
 pub(crate) fn get_class<'a>(
     env: &mut Env<'a>,
-    class_name: &'static str,
+    activity_class: ActivityClass,
 ) -> jni::errors::Result<JClass<'a>> {
     let mut classes = CLASSES.lock().expect("classes cache is poisoned");
-    if classes.contains_key(class_name) {
-        let existing_class = classes.get(class_name).unwrap().as_raw();
+    if classes.contains_key(&activity_class) {
+        let existing_class = classes.get(&activity_class).unwrap().as_raw();
         // UNSAFE: casting raw pointer obtained from a global ref just above this line
         return Ok(unsafe { JClass::from_raw(env, existing_class) });
     } else {
@@ -37,7 +55,7 @@ pub(crate) fn get_class<'a>(
             )?
             .l()?;
 
-        let class_name_jstr = env.new_string(class_name)?;
+        let class_name_jstr = env.new_string(activity_class.as_str())?;
         let class_jobj = env
             .call_method(
                 &loader,
@@ -49,7 +67,7 @@ pub(crate) fn get_class<'a>(
 
         let local_class = JClass::cast_local(env, class_jobj)?;
         let class = env.new_global_ref(&local_class)?;
-        classes.insert(class_name, class);
+        classes.insert(activity_class, class);
 
         Ok(local_class)
     }

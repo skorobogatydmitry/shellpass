@@ -5,6 +5,9 @@ import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 
 public class FSAdapter {
@@ -56,5 +59,25 @@ public class FSAdapter {
             }
         }
         return results.toArray(new String[0]);
+    }
+
+    public static byte[] readFile(Context context, String uriStr)
+        throws IOException {
+        Uri uri = Uri.parse(uriStr);
+        ContentResolver resolver = context.getContentResolver();
+        InputStream is = resolver.openInputStream(uri);
+        if (is == null) throw new IOException("Could not open input stream");
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        try {
+            while ((n = is.read(chunk)) != -1) {
+                buffer.write(chunk, 0, n);
+            }
+        } finally {
+            is.close();
+        }
+        return buffer.toByteArray();
     }
 }
