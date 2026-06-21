@@ -81,12 +81,10 @@ keytool -genkeypair -v \
 This app is not (and possibly won't ever be) Google Play -ready by any means.
 
 # TODO
-- TODOs in the code
 - Add user-visible notifications
-- Make a button to close application
+- make sure decrypted data is handled safely
+- TODOs in the code
 - Make interface scale factor user-defined
 - Make a housekeeper to crash program if any thread crashes
 - Show entries as a tree
 - mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`
-- make sure decrypted data is handled safely
-- join load_secret_key's thread into Settings::update_routine
