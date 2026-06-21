@@ -1,4 +1,3 @@
-use anyhow::{Context, anyhow};
 use egui::Ui;
 use jni::{
     EnvUnowned, jni_sig, jni_str,
@@ -7,26 +6,25 @@ use jni::{
 use jni_min_helper::jni_with_env;
 use log::debug;
 use ndk_context::android_context;
-use pgp::composed::{Deserializable, SignedSecretKey};
 use std::{
     sync::{
         Mutex, OnceLock,
         mpsc::{Receiver, SyncSender},
     },
-    thread::{self, JoinHandle},
+    thread::{self},
     time::Duration,
 };
 
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
-    settings::SETTINGS,
+    settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
 static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
 
 static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+pub static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
 
 impl super::OsUi for Ui {
     /// there's an area in android screen which is actually occupied by status bar
@@ -66,8 +64,7 @@ impl super::OsUi for Ui {
                     .flatten();
                 debug!("new pass root from activity: {:?}", new_pass_root);
                 if let Some(new_pass_root) = new_pass_root {
-                    let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                    settings.set_pass_root(new_pass_root);
+                    settings::send_update_request(SettingsUpdateReq::PassRoot(new_pass_root));
                 }
             });
         }
@@ -78,9 +75,10 @@ impl super::OsUi for Ui {
         if button.clicked() {
             // TODO: show error to the user
             run_activity(ActivityClass::FilePickerActivity).expect("can't fire file picker");
+            true // one activity - one request to process its results
+        } else {
+            false
         }
-        // TODO: synchronize initialization and loading properly
-        true
     }
 
     fn to_clipboard(&self, s: String) {
@@ -152,57 +150,6 @@ impl super::OsUi for Ui {
             log::error!("unable to send password to clipboard: {e:#}");
         }
     }
-
-    fn load_secret_key() -> JoinHandle<()> {
-        thread::spawn(|| {
-            match read_secret_key() {
-                Ok(key) => {
-                    let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                    settings.gnupg_secret_key = Some(key);
-                }
-                Err(e) => {
-                    // TODO: show to the user
-                    log::error!("unable to read secret key file: {e:#}");
-                }
-            }
-        })
-    }
-}
-
-/// just obtain, read and parse the secret key
-fn read_secret_key() -> anyhow::Result<SignedSecretKey> {
-    let file_picker_rx = FILE_PICKER_RX
-        .get()
-        .ok_or(anyhow!("receiver for activity data is not ready"))?;
-    let new_secret_key_uri = file_picker_rx
-        .lock()
-        .expect("file picker RX is poisoned!")
-        .recv_timeout(Duration::from_secs(90)) // let's assume that's enough for the users
-        .context("cannot receive the picked file URI")?;
-    debug!("new secret key URI from activity: {:?}", new_secret_key_uri);
-    let new_secret_key_uri =
-        new_secret_key_uri.ok_or(anyhow!("no file uri received from picker"))?;
-
-    let file_content = jni_min_helper::jni_with_env(|env| {
-        let ctx =
-            unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
-        let jni_secret_key_uri = env.new_string(new_secret_key_uri)?;
-        let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
-        let bytes_jobj = env
-            .call_static_method(
-                &fs_adapter,
-                jni_str!("readFile"),
-                jni_sig!((android.content.Context, java.lang.String) -> [byte]),
-                &[JValue::Object(&ctx), JValue::Object(&jni_secret_key_uri)],
-            )?
-            .l()?;
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, bytes_jobj.as_raw()) };
-        env.convert_byte_array(&byte_array)
-    })
-    .context("unable to read secret key file")?;
-
-    SignedSecretKey::from_bytes(file_content.as_slice())
-        .context("error on loading secret key bytes")
 }
 
 /// launch the prepared activity
@@ -240,7 +187,7 @@ fn run_activity(activity_class: ActivityClass) -> jni::errors::Result<()> {
 }
 
 /// initiazile classes and variables to be able to launch file picker
-pub fn load_file_picker_activity() -> jni::errors::Result<()> {
+pub fn init_picker_activities() -> jni::errors::Result<()> {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     DIR_PICKER_TX
         .set(tx)

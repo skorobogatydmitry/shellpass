@@ -1,16 +1,15 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::{
-    sync::{LazyLock, Mutex},
-    thread::JoinHandle,
-};
+use std::sync::{LazyLock, Mutex};
 
 use egui::{CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
-use pgp::types::KeyDetails;
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
+#[cfg(target_os = "android")]
+pub use android::FILE_PICKER_RX;
+
 #[cfg(target_os = "linux")]
 mod linux;
 
@@ -21,10 +20,6 @@ pub(crate) trait OsUi {
     /// represet platform-specific part of settings
     /// must return whether the setting is finalized (ready to read the key)
     fn gnupg_secret_key_settings(&mut self) -> bool;
-    /// this method is called when both - password and secret key path/digest are ready to load the key data
-    /// it must spawn a background thread and return its handle to avoid locking UI
-    /// it's this thread's duty to update settings accordingly
-    fn load_secret_key() -> JoinHandle<()>;
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
@@ -32,7 +27,7 @@ pub(crate) trait OsUi {
 use crate::{
     finder::FINDER,
     pass::{PassRepository, REPOSITORY},
-    settings::SETTINGS,
+    settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
 static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
@@ -65,20 +60,16 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
 
 /// part of the menu with GnuPG settings
 fn gnupg_settings(ui: &mut Ui) {
-    let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-    let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-
-    let settings_key_digest = settings
-        .gnupg_secret_key
-        .as_ref()
-        .map(|k| k.primary_key.fingerprint().to_string());
-
+    let settings = SETTINGS.lock().expect("settings are poisoned!");
+    let settings_key_digest = settings.gnupg_secret_key_digest();
     ui.label(if settings.gnupg_passphrase_set() {
         "key passphrase is set"
     } else {
         "no passphrase set"
     });
+    drop(settings);
 
+    let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
     let passphrase_ui_buf = &mut ui_state.partial_gnupg_passphrase;
     let passphrase_edit = ui.add(
         egui::TextEdit::singleline(passphrase_ui_buf)
@@ -88,7 +79,7 @@ fn gnupg_settings(ui: &mut Ui) {
     if passphrase_edit.lost_focus() {
         let mut pp = String::new();
         std::mem::swap(passphrase_ui_buf, &mut pp);
-        settings.set_gnupg_passphrase(pp);
+        settings::send_update_request(SettingsUpdateReq::GnuPGPassphrase(pp));
     }
     drop(ui_state);
 
@@ -106,8 +97,9 @@ fn gnupg_settings(ui: &mut Ui) {
     // digest in the settings can't be used here, as it can only be set if the previous load succeeded
     // so, even for passphrase change we rely on that the buffer has digest to load
     if secret_key_ready || passphrase_edit.lost_focus() {
-        //
-        let _sk_jh = Ui::load_secret_key();
+        let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
+        let digest = ui_state.partial_gnupg_secret_key.clone(); //"AF0E12DF50A47F57522FDB5346B290E986B754D8"
+        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
     }
 }
 
@@ -124,7 +116,7 @@ pub(crate) fn main(ui: &mut Ui) {
         });
     });
 
-    let bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
+    let _bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
         // search bar + settings button
         let responses = ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -213,7 +205,7 @@ pub(crate) fn main(ui: &mut Ui) {
     });
 
     // TODO: figure why
-    // - it doesn't autp-resize interface on android
+    // - it doesn't auto-resize interface on android
     // - why it doesn't request focus on Linux
     // keep focus on the main input unless there's a settings menu opened
     // let (search_bar_resp, settings_menu_resp) = (

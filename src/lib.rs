@@ -2,11 +2,13 @@ use eframe::CreationContext;
 use std::error::Error;
 
 #[cfg(target_os = "android")]
-use crate::ui::android::load_file_picker_activity;
+use crate::ui::android::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::FINDER, settings::SETTINGS};
+use crate::finder::FINDER;
+
+const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
 pub(crate) mod pass;
@@ -25,10 +27,7 @@ impl App {
             finder.search_routine();
         }
 
-        {
-            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-            settings.update_routine();
-        }
+        settings::initialize();
         Ok(Box::new(Self {}))
     }
 }
@@ -48,14 +47,14 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    load_file_picker_activity().expect("unable to load file picker activity");
+    init_picker_activities().expect("unable to load file picker activity");
 
     let options = eframe::NativeOptions {
         android_app: Some(app),
         ..Default::default()
     };
     eframe::run_native(
-        "shellpass",
+        NAME_VERSION,
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -77,7 +76,7 @@ pub fn linux_main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "unused",
+        NAME_VERSION,
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
