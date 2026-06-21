@@ -1,13 +1,12 @@
 use eframe::CreationContext;
-use log::warn;
 use std::error::Error;
 
 #[cfg(target_os = "android")]
-use crate::ui::android::load_file_picker_activity;
+use crate::ui::android::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::FINDER, settings::SETTINGS};
+use crate::finder::FINDER;
 
 const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
@@ -28,10 +27,7 @@ impl App {
             finder.search_routine();
         }
 
-        {
-            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-            settings.update_routine();
-        }
+        settings::initialize();
         Ok(Box::new(Self {}))
     }
 }
@@ -39,12 +35,6 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui::main(ui);
-    }
-    fn on_exit(&mut self) {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        if let Err(e) = settings.try_save() {
-            warn!("unable to save settings on exit: {e:#}")
-        }
     }
 }
 
@@ -57,7 +47,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    load_file_picker_activity().expect("unable to load file picker activity");
+    init_picker_activities().expect("unable to load file picker activity");
 
     let options = eframe::NativeOptions {
         android_app: Some(app),

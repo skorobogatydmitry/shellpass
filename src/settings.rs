@@ -3,14 +3,17 @@ use std::{
     hint::black_box,
     io::Write,
     path::PathBuf,
-    sync::{Arc, Condvar, LazyLock, Mutex},
+    sync::{
+        LazyLock, Mutex, OnceLock,
+        mpsc::{self, Sender},
+    },
     thread,
 };
 
 use anyhow::{Context, bail};
 use pgp::{
     composed::{DecryptionOptions, SignedSecretKey, TheRing},
-    types::Password,
+    types::{KeyDetails, Password},
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +22,18 @@ use crate::{
     pass::{PassRepository, REPOSITORY},
 };
 
+trait OsSettings {
+    fn read_secret_key(_unused_digest: String) -> anyhow::Result<pgp::composed::SignedSecretKey>;
+}
+
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "linux")]
+mod linux;
+
 static STORED_SETTINGS_FILE_NAME: &str = concat!(env!("CARGO_PKG_NAME"), "-settings.bson");
+
+static SETTINGS_UPDATE_EVENT_QUEUE: OnceLock<Sender<SettingsUpdateReq>> = OnceLock::new();
 
 pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     Mutex::new(match Settings::try_load() {
@@ -31,19 +45,147 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     })
 });
 
+pub enum SettingsUpdateReq {
+    PassRoot(String),
+    GnuPGPassphrase(String),
+    GnuPGSecretKey(String),
+}
+
+/// settings event pipeline initialization and
+/// spaws a thread to do heavy-lifting settings updates
+pub(crate) fn initialize() {
+    let (tx, rx) = mpsc::channel();
+
+    let settings = SETTINGS.lock().expect("settings are poisoned!");
+    if let Some(loaded_pass_root) = settings.pass_root.as_ref() {
+        if let Err(e) = tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone())) {
+            log::error!("unable to set initial pass root: {e:#}");
+        }
+    }
+
+    SETTINGS_UPDATE_EVENT_QUEUE
+        .set(tx)
+        .expect("settings update queue initialization failed");
+
+    thread::spawn(move || {
+        loop {
+            match rx.recv() {
+                Err(_e) => log::error!("settings update event channel is closed, exitting"),
+                Ok(request) => {
+                    let mut settings_updated = false;
+                    match request {
+                        SettingsUpdateReq::PassRoot(new_pass_root) => {
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned");
+                            let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
+                            repo.refresh_entries(new_pass_root.as_str());
+                            drop(repo);
+                            // let the finder refresh matches
+                            let finder = FINDER.lock().expect("finder is poisoned!");
+                            finder.change_fence.notify_one();
+                            settings.pass_root.replace(new_pass_root);
+                            settings_updated = true;
+                        }
+                        SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
+                            // reset the whole passphrase to the new value
+                            // make sure we don't leak tails of strings - it's always zero-ed
+                            // TODO: disable optimization for the following code
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned");
+                            let pp = black_box(settings.gnupg_passphrase.replace(new_pp));
+                            drop(settings);
+                            if let Some(mut pp) = pp {
+                                // UNSAFE: we drain the content just after the loop => no need to be valid seq
+                                for byte in unsafe { pp.as_bytes_mut() } {
+                                    *byte = 0u8;
+                                }
+                                pp.clear();
+                            }
+                            // there's no need to save settings here
+                        }
+                        SettingsUpdateReq::GnuPGSecretKey(digest) => {
+                            match Settings::read_secret_key(digest) {
+                                Ok(key) => {
+                                    let mut settings =
+                                        SETTINGS.lock().expect("settings are poisoned!");
+                                    settings.gnupg_secret_key = Some(key);
+                                }
+                                Err(e) => {
+                                    // TODO: show to the user
+                                    log::error!("unable to read secret key file: {e:#}");
+                                }
+                            }
+                            settings_updated = true;
+                        }
+                    }
+                    if settings_updated {
+                        let settings = SETTINGS.lock().expect("settings are poisoned!");
+                        if let Err(e) = settings.try_save() {
+                            log::error!("settings changed, but failed to save: {e:#}");
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// public API to send update requests to settings
+pub(crate) fn send_update_request(request: SettingsUpdateReq) {
+    // UNWRAP: initialized beforehand
+    let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE.get().unwrap();
+    if let Err(e) = settings_event_queue.send(request) {
+        log::error!("unable to send settings update request: {e:#}");
+    }
+}
+
 /// tunable settings
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     pass_root: Option<String>,
     #[serde(with = "with_bytes")]
-    pub gnupg_secret_key: Option<SignedSecretKey>,
+    gnupg_secret_key: Option<SignedSecretKey>,
     #[serde(skip)] // don't store password longer that the app's lifetime
     gnupg_passphrase: Option<String>,
-    #[serde(skip)] // purely internal structure - no need to preserve
-    change_fence: Arc<Condvar>,
 }
 
 impl Settings {
+    fn new() -> Self {
+        // TODO: refactor-off platforsm-specific defaults
+        Self {
+            pass_root: if cfg!(target_os = "linux") {
+                std::env::home_dir()
+                    .map(|dir| dir.join(".password-store"))
+                    .and_then(|dir| dir.to_str().map(|s| s.to_string()))
+            } else {
+                None
+            },
+            gnupg_secret_key: None,
+            gnupg_passphrase: None,
+        }
+    }
+
+    /// platform-specific folders to store settings
+    #[cfg(target_os = "android")]
+    fn settings_store_dir() -> anyhow::Result<PathBuf> {
+        use jni_min_helper::android_app_files_dir;
+
+        let config_dir = android_app_files_dir();
+        if !config_dir.exists() {
+            bail!("cannot load/store settings: config directory doesn't exist");
+        }
+        Ok(config_dir.to_path_buf())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn settings_store_dir() -> anyhow::Result<PathBuf> {
+        let config_dir = std::env::home_dir()
+            .context("no home directory available to load/store settings")?
+            .join(".config");
+        if !config_dir.exists() {
+            bail!("cannot load/store settings: ~/.config directory doesn't exist");
+        }
+        Ok(config_dir)
+    }
+
     /// try to pickup previously stored settings
     fn try_load() -> anyhow::Result<Self> {
         let storing_file_path = Self::storing_file_path()?;
@@ -59,13 +201,13 @@ impl Settings {
     }
 
     /// try to save settings
-    pub(crate) fn try_save(&self) -> anyhow::Result<()> {
+    fn try_save(&self) -> anyhow::Result<()> {
         let storing_file_path = Self::storing_file_path()?;
         let mut settings_file =
             File::create(storing_file_path).context("unable to (re)create settings file")?;
         settings_file
             .write_all(
-                bson::serialize_to_vec(self)
+                bson::serialize_to_vec(&self)
                     .context("error on convesion settings to bson")?
                     .as_slice(),
             )
@@ -74,67 +216,15 @@ impl Settings {
 
     /// define path to store settings at
     fn storing_file_path() -> anyhow::Result<PathBuf> {
-        // TODO: android
-        let config_dir = std::env::home_dir()
-            .context("no home directory available to load settings")?
-            .join(".config");
-        if !config_dir.exists() {
-            bail!("cannot lookup settings: ~/.config directory doesn't exist");
-        }
-        Ok(config_dir.join(STORED_SETTINGS_FILE_NAME))
-    }
-
-    fn new() -> Self {
-        Self {
-            // TODO: refactor-off platform-specific defaults
-            pass_root: if cfg!(target_os = "linux") {
-                std::env::home_dir()
-                    .map(|dir| dir.join(".password-store"))
-                    .and_then(|dir| dir.to_str().map(|s| s.to_string()))
-            } else {
-                None
-            },
-            change_fence: Arc::new(Condvar::new()),
-            gnupg_secret_key: None,
-            gnupg_passphrase: None,
-        }
-    }
-
-    pub(crate) fn update_routine(&mut self) {
-        let fence = Arc::clone(&self.change_fence);
-        thread::spawn(move || {
-            let mut current_settings = SETTINGS.lock().expect("settings are poisoned!");
-            loop {
-                let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
-                if let Some(pass_root) = current_settings.pass_root.as_ref() {
-                    repo.refresh_entries(pass_root);
-                    // let the finder to refresh matches
-                    let finder = FINDER.lock().expect("finder is poisoned!");
-                    finder.change_fence.notify_one();
-                }
-                drop(repo);
-                current_settings = fence
-                    .wait(current_settings)
-                    .expect("settings are poisoned!");
-            }
-        });
-    }
-
-    pub(crate) fn set_pass_root(&mut self, new_pass_root: String) -> Option<String> {
-        if Some(&new_pass_root) != self.pass_root.as_ref() {
-            let result = self.pass_root.replace(new_pass_root);
-            self.change_fence.notify_one();
-            result
-        } else {
-            None
-        }
+        Ok(Self::settings_store_dir()?.join(STORED_SETTINGS_FILE_NAME))
     }
 
     pub(crate) fn pass_root(&self) -> Option<String> {
         self.pass_root.clone()
     }
 
-    pub fn has_gnupg_config(&self) -> bool {
+    /// whether the settings has full config to decrypt passwords
+    pub(crate) fn has_gnupg_config(&self) -> bool {
         self.gnupg_passphrase.is_some() && self.gnupg_secret_key.is_some()
     }
 
@@ -146,26 +236,19 @@ impl Settings {
         })
     }
 
-    /// reset the whole passphrase to the value provided
-    /// make sure we don't leak tails of strings - it's always zero-ed
-    /// TODO: avoid optimization on this method
-    pub(crate) fn set_gnupg_passphrase(&mut self, passphrase: String) {
-        let pp = black_box(self.gnupg_passphrase.take());
-        if let Some(mut pp) = pp {
-            // UNSAFE: we drain the content just after the loop => no need to be valid seq
-            for byte in unsafe { pp.as_bytes_mut() } {
-                *byte = 0u8;
-            }
-            pp.clear();
-        }
-        self.gnupg_passphrase = Some(passphrase);
-    }
     pub(crate) fn gnupg_passphrase_set(&self) -> bool {
         self.gnupg_passphrase.is_some()
     }
+
     #[allow(dead_code)] // android only
     pub(crate) fn gnupg_passphrase(&self) -> Option<&str> {
         self.gnupg_passphrase.as_deref()
+    }
+
+    pub(crate) fn gnupg_secret_key_digest(&self) -> Option<String> {
+        self.gnupg_secret_key
+            .as_ref()
+            .map(|k| k.primary_key.fingerprint().to_string())
     }
 }
 
