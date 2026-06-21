@@ -22,6 +22,7 @@ use crate::{
     pass::{PassRepository, REPOSITORY},
 };
 
+/// interface for OS-specific settings functions
 trait OsSettings {
     fn read_secret_key(_unused_digest: String) -> anyhow::Result<pgp::composed::SignedSecretKey>;
 }
@@ -51,16 +52,16 @@ pub enum SettingsUpdateReq {
     GnuPGSecretKey(String),
 }
 
-/// settings event pipeline initialization and
-/// spaws a thread to do heavy-lifting settings updates
+/// initializes settings update events queue and
+/// spawns a thread to do heavy-lifting settings updates
 pub(crate) fn initialize() {
     let (tx, rx) = mpsc::channel();
 
     let settings = SETTINGS.lock().expect("settings are poisoned!");
-    if let Some(loaded_pass_root) = settings.pass_root.as_ref() {
-        if let Err(e) = tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone())) {
-            log::error!("unable to set initial pass root: {e:#}");
-        }
+    if let Some(loaded_pass_root) = settings.pass_root.as_ref()
+        && let Err(e) = tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone()))
+    {
+        log::error!("unable to set initial pass root: {e:#}");
     }
 
     SETTINGS_UPDATE_EVENT_QUEUE

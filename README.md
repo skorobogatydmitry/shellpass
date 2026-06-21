@@ -83,6 +83,7 @@ This app is not (and possibly won't ever be) Google Play -ready by any means.
 # TODO
 - Add user-visible notifications
 - make sure decrypted data is handled safely
+- allow to clear settings
 - TODOs in the code
 - Make interface scale factor user-defined
 - Make a housekeeper to crash program if any thread crashes
