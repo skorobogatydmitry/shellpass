@@ -1,4 +1,5 @@
 use eframe::CreationContext;
+use log::warn;
 use std::error::Error;
 
 #[cfg(target_os = "android")]
@@ -7,6 +8,8 @@ use crate::ui::android::load_file_picker_activity;
 pub(crate) mod android_interface;
 
 use crate::{finder::FINDER, settings::SETTINGS};
+
+const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
 pub(crate) mod pass;
@@ -37,6 +40,12 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui::main(ui);
     }
+    fn on_exit(&mut self) {
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
+        if let Err(e) = settings.try_save() {
+            warn!("unable to save settings on exit: {e:#}")
+        }
+    }
 }
 
 // is required to run on Android
@@ -55,7 +64,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         ..Default::default()
     };
     eframe::run_native(
-        "shellpass",
+        NAME_VERSION,
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -77,7 +86,7 @@ pub fn linux_main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "unused",
+        NAME_VERSION,
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);

@@ -1,30 +1,89 @@
 use std::{
+    fs::File,
     hint::black_box,
+    io::Write,
+    path::PathBuf,
     sync::{Arc, Condvar, LazyLock, Mutex},
     thread,
 };
 
+use anyhow::{Context, bail};
 use pgp::{
     composed::{DecryptionOptions, SignedSecretKey, TheRing},
     types::Password,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     finder::FINDER,
     pass::{PassRepository, REPOSITORY},
 };
 
-pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| Mutex::new(Settings::new()));
+static STORED_SETTINGS_FILE_NAME: &str = concat!(env!("CARGO_PKG_NAME"), "-settings.bson");
+
+pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
+    Mutex::new(match Settings::try_load() {
+        Ok(stored_settings) => stored_settings,
+        Err(e) => {
+            log::warn!("can't load settings, fallback to defaults: {e:#}"); // TODO: show to the end-user
+            Settings::new()
+        }
+    })
+});
 
 /// tunable settings
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     pass_root: Option<String>,
+    #[serde(with = "with_bytes")]
     pub gnupg_secret_key: Option<SignedSecretKey>,
-    gnupg_passphrase: Option<String>, // TODO: avoid storing password
+    #[serde(skip)] // don't store password longer that the app's lifetime
+    gnupg_passphrase: Option<String>,
+    #[serde(skip)] // purely internal structure - no need to preserve
     change_fence: Arc<Condvar>,
 }
 
 impl Settings {
+    /// try to pickup previously stored settings
+    fn try_load() -> anyhow::Result<Self> {
+        let storing_file_path = Self::storing_file_path()?;
+        if storing_file_path.exists() {
+            bson::deserialize_from_reader(File::open(storing_file_path)?)
+                .context("settings deserialization error")
+        } else {
+            bail!(
+                "no config file found at {}",
+                storing_file_path.to_string_lossy()
+            )
+        }
+    }
+
+    /// try to save settings
+    pub(crate) fn try_save(&self) -> anyhow::Result<()> {
+        let storing_file_path = Self::storing_file_path()?;
+        let mut settings_file =
+            File::create(storing_file_path).context("unable to (re)create settings file")?;
+        settings_file
+            .write_all(
+                bson::serialize_to_vec(self)
+                    .context("error on convesion settings to bson")?
+                    .as_slice(),
+            )
+            .context("unable to write settings content to file")
+    }
+
+    /// define path to store settings at
+    fn storing_file_path() -> anyhow::Result<PathBuf> {
+        // TODO: android
+        let config_dir = std::env::home_dir()
+            .context("no home directory available to load settings")?
+            .join(".config");
+        if !config_dir.exists() {
+            bail!("cannot lookup settings: ~/.config directory doesn't exist");
+        }
+        Ok(config_dir.join(STORED_SETTINGS_FILE_NAME))
+    }
+
     fn new() -> Self {
         Self {
             // TODO: refactor-off platform-specific defaults
@@ -124,6 +183,41 @@ impl<'a> GnuPGSecret<'a> {
             decrypt_options: DecryptionOptions::new().enable_gnupg_aead(),
             message_password: vec![],
             session_keys: vec![],
+        }
+    }
+}
+
+/// serialize and deserialize SignedSecretKey as Vec<u8>
+mod with_bytes {
+    use pgp::{
+        composed::{Deserializable, SignedSecretKey},
+        ser::Serialize as _,
+    };
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(key: &Option<SignedSecretKey>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match key {
+            Some(key) => {
+                let bytes = key.to_bytes().map_err(serde::ser::Error::custom)?;
+                bytes.serialize(serializer)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<SignedSecretKey>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<Vec<u8>> = Option::deserialize(deserializer)?;
+        match opt {
+            Some(bytes) => SignedSecretKey::from_bytes(bytes.as_slice())
+                .map(Some)
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
         }
     }
 }

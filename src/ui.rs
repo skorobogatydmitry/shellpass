@@ -124,7 +124,7 @@ pub(crate) fn main(ui: &mut Ui) {
         });
     });
 
-    let bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
+    let _bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
         // search bar + settings button
         let responses = ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
