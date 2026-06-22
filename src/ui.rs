@@ -1,14 +1,18 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::sync::{LazyLock, Mutex};
+use std::{
+    sync::{LazyLock, Mutex},
+    time::Duration,
+};
 
-use egui::{CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
+use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
 #[cfg(target_os = "android")]
 pub use android::FILE_PICKER_RX;
+use egui_extras::{Size, StripBuilder};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -26,6 +30,7 @@ pub(crate) trait OsUi {
 
 use crate::{
     finder::FINDER,
+    notifications::{self, Message},
     pass::{PassRepository, REPOSITORY},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
@@ -103,45 +108,80 @@ fn gnupg_settings(ui: &mut Ui) {
     }
 }
 
+fn notifications_bar(ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        let row_height = ui.spacing().interact_size.y; // standard widget height
+        ui.spacing_mut().item_spacing.x = 0.0;
+
+        StripBuilder::new(ui)
+            .size(Size::remainder())
+            .size(Size::exact(row_height)) // width == height -> square
+            .horizontal(|mut strip| {
+                let notification = notifications::current_notification();
+                let show_close = notification.closable;
+                strip.cell(|ui| {
+                    ui.add(
+                        egui::ProgressBar::new(notification.remained())
+                            .animate(true)
+                            .text(notification.message)
+                            .fill(Color32::DARK_GRAY)
+                            .corner_radius(1.5),
+                    );
+                });
+                if show_close {
+                    strip.cell(|ui| {
+                        if ui
+                            .add_sized(
+                                [row_height, row_height],
+                                egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
+                            )
+                            .clicked()
+                        {
+                            notifications::expire_current();
+                        }
+                    });
+                }
+            });
+    });
+}
+
 pub(crate) fn main(ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
-    Panel::top("info").show_inside(ui, |ui| {
-        ui.top_padding();
-        ui.vertical_centered_justified(|ui| {
-            let repository = REPOSITORY.lock().expect("repository is poisoned!");
-            ui.label(match repository.entries_count() {
-                0 => "no entries found, check settings".to_string(),
-                count => format!("{} entries in your pass", count),
-            })
+    Panel::top("notifications")
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
+        .show_inside(ui, |ui| {
+            ui.top_padding();
+            notifications_bar(ui);
         });
-    });
 
-    let _bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
-        // search bar + settings button
-        let responses = ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                let image = egui::include_image!("../assets/cog.png");
-                let settings_button_resp = ui.button(image);
-                let settings_menu_resp = settings_menu(&settings_button_resp);
-                ui.centered_and_justified(|ui| {
-                    let mut finder = FINDER.lock().expect("finder is poisoned!");
-                    let seach_bar_resp = ui
-                        .add(
-                            egui::TextEdit::singleline(&mut finder.pattern)
-                                .hint_text("start typing to search"),
-                        )
-                        .highlight();
-                    if seach_bar_resp.changed() {
-                        finder.change_fence.notify_one();
-                    }
-                    drop(finder);
-                    (seach_bar_resp, settings_menu_resp)
+    let _bottom_bar_resps = Panel::bottom("search and settings")
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
+        .show_inside(ui, |ui| {
+            // search bar + settings button
+            let responses = ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    let image = egui::include_image!("../assets/cog.png");
+                    let settings_button_resp = ui.button(image);
+                    let settings_menu_resp = settings_menu(&settings_button_resp);
+                    ui.centered_and_justified(|ui| {
+                        let mut finder = FINDER.lock().expect("finder is poisoned!");
+                        let seach_bar_resp = ui
+                            .add(
+                                egui::TextEdit::singleline(&mut finder.pattern)
+                                    .hint_text("start typing to search"),
+                            )
+                            .highlight();
+                        if seach_bar_resp.changed() {
+                            finder.change_fence.notify_one();
+                        }
+                        drop(finder);
+                        (seach_bar_resp, settings_menu_resp)
+                    })
                 })
-            })
+            });
+            ui.bottom_padding();
+            responses
         });
-        ui.bottom_padding();
-        responses
-    });
 
     // list of matching entries
     let mut any_popup_opened = false;
@@ -191,6 +231,10 @@ pub(crate) fn main(ui: &mut Ui) {
                                     match repository.retrieve(entry, gnupg_secret) {
                                         Ok(data) => {
                                             ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                                            notifications::push_message(
+                                                Message::new("copied")
+                                                    .with_duration(Duration::from_secs(3)),
+                                            );
                                         }
                                         // TODO: notify the end-user
                                         Err(e) => log::error!("unable to retrieve an entry: {e:?}"),

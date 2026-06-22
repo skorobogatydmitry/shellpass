@@ -11,6 +11,7 @@ use crate::finder::FINDER;
 const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
+pub(crate) mod notifications;
 pub(crate) mod pass;
 pub(crate) mod settings;
 pub(crate) mod ui;
@@ -22,6 +23,7 @@ impl App {
     pub fn new(
         _cc: &CreationContext,
     ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
+        notifications::initialize();
         {
             let mut finder = FINDER.lock().expect("finder is poisoned!");
             finder.search_routine();
