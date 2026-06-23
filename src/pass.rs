@@ -1,5 +1,7 @@
 use std::{
     fmt::Display,
+    hint,
+    io::Read,
     sync::{LazyLock, Mutex},
 };
 
@@ -38,10 +40,17 @@ pub(crate) trait PassRepository<Y: PassEntry> {
         let (mut decrypted, _) = msg
             .decrypt_the_ring(secret.get_ring(), true)
             .context("cannot decrypt the message")?;
-        Ok((
-            entry.username(),
-            decrypted.as_data_string()?.trim().to_string(),
-        ))
+        // TODO: potentially the messages leaks sensitive data here
+        // but it's not in our control
+        let mut password = String::new();
+        decrypted.read_to_string(&mut password)?;
+        // pass entries typically end with \n
+        if let Some(last_char) = password.chars().last()
+            && last_char == '\n'
+        {
+            password.pop();
+        }
+        Ok((entry.username(), password))
     }
 }
 
@@ -62,3 +71,13 @@ pub(crate) type PassRepositoryImpl = android::PassRepository;
 pub(crate) type PassEntryImpl = linux::PassEntry;
 #[cfg(target_os = "android")]
 pub(crate) type PassEntryImpl = android::PassEntry;
+
+/// a method to clear strings after use
+// TODO: disallow optimizing-out the call
+pub fn clear_string(s: String) {
+    let mut s = hint::black_box(s);
+    for byte in unsafe { s.as_bytes_mut() } {
+        *byte = 0u8;
+    }
+    s.clear();
+}
