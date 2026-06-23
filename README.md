@@ -83,9 +83,12 @@ This app is not (and possibly won't ever be) Google Play -ready by any means.
 # TODO
 - make sure decrypted data is handled safely
 - allow to clear settings
+- update README
+  - mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`
+  - mention basic user interface logic
 - TODOs in the code
 - deal with PassEntry prefix strip
 - Make interface scale factor user-defined
 - Make a housekeeper to crash program if any thread crashes
 - Show entries as a tree
-- mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`
+- Resize interface when keyboard appears on android

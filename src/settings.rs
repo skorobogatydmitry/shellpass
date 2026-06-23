@@ -151,7 +151,6 @@ pub(crate) fn initialize() {
 
 /// public API to send update requests to settings
 pub(crate) fn send_update_request(request: SettingsUpdateReq) {
-    // UNWRAP: initialized beforehand
     let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE
         .get()
         .expect("settings update queue is not ready");
