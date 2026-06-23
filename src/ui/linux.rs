@@ -17,11 +17,17 @@ impl super::OsUi for Ui {
     fn pass_root_setting(&mut self) {
         self.label("pass repository root");
         let settings = SETTINGS.lock().expect("settings are poisoned!");
-        let mut pass_root = settings.pass_root().unwrap_or_default();
+        self.label(match settings.pass_root() {
+            Some(current_pass_root) => format!("is set to '{}'", current_pass_root),
+            None => "is not set".to_string(),
+        });
         drop(settings);
 
-        if self.text_edit_singleline(&mut pass_root).lost_focus() {
-            settings::send_update_request(SettingsUpdateReq::PassRoot(pass_root));
+        let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
+        let pass_root_buf = &mut ui_state.partial_pass_root;
+
+        if self.text_edit_singleline(pass_root_buf).lost_focus() {
+            settings::send_update_request(SettingsUpdateReq::PassRoot(pass_root_buf.clone()));
         }
     }
 
