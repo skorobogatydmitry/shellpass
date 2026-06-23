@@ -14,22 +14,7 @@ use crate::{
 
 use super::PassEntry as _PassEntry;
 
-pub(crate) struct PassRepository {
-    entries: Vec<PassEntry>,
-    last_seen_pass: Option<String>,
-}
-
-impl super::PassRepository<PassEntry> for PassRepository {
-    fn new() -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            entries: Vec::new(),
-            last_seen_pass: None,
-        }
-    }
-
+impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
     fn entries_count(&self) -> usize {
         self.entries.len()
     }
@@ -74,7 +59,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
                     .into_iter()
                     .map(|url| PassEntry::new(pass_root, url))
                     .collect();
-                self.last_seen_pass = Some(pass_root.to_string());
+                self.last_used_root = Some(pass_root.to_string());
                 log::info!(
                     "{} entries for root {} found",
                     self.entries_count(),

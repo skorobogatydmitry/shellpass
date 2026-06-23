@@ -28,7 +28,7 @@ pub(crate) trait OsUi {
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
-    pass::{PassRepository, REPOSITORY, clear_string},
+    pass::{REPOSITORY, RepositoryAccessor, clear_string},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
@@ -55,6 +55,10 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
                 ui.vertical_centered_justified(|ui| {
                     ui.pass_root_setting();
                     gnupg_settings(ui);
+                    ui.add(egui::Separator::default());
+                    if ui.button("reset settings").highlight().clicked() {
+                        settings::send_update_request(SettingsUpdateReq::Reset);
+                    }
                 });
             });
         })

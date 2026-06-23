@@ -1,11 +1,18 @@
 [package]
 name = "shellpass"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 
 [lib]
 # cdylib is required for Android, lib is required for desktop
 crate-type = ["cdylib", "lib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 
 [dependencies]
 anyhow = "1.0.102"
