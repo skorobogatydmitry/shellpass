@@ -7,6 +7,13 @@ edition = "2024"
 # cdylib is required for Android, lib is required for desktop
 crate-type = ["cdylib", "lib"]
 
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [dependencies]
 anyhow = "1.0.102"
 egui = "0.34.1"
