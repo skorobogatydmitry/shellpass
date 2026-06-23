@@ -159,14 +159,11 @@ impl super::OsUi for Ui {
         });
 
         if let Err(e) = result {
-            let error_desc = format!("{e:#}");
-            notifications::push_message(Message::new(
-                format!(
-                    "unable to send password to clipboard: {}",
-                    error_desc.replace(s.as_str(), "****")
-                ),
-                notifications::Kind::Error,
-            ));
+            let masked_desc = format!("{e:#}").replace(s.as_str(), "****");
+            crate::pass::clear_string(s);
+            notifications::push_message(Message::new(masked_desc, notifications::Kind::Error));
+        } else {
+            crate::pass::clear_string(s);
         }
     }
 }

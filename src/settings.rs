@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
-    pass::{PassRepository, REPOSITORY},
+    pass::{PassRepository, REPOSITORY, clear_string},
 };
 
 /// interface for OS-specific settings functions
@@ -107,12 +107,8 @@ pub(crate) fn initialize() {
                             let mut settings = SETTINGS.lock().expect("settings are poisoned!");
                             let pp = black_box(settings.gnupg_passphrase.replace(new_pp));
                             drop(settings);
-                            if let Some(mut pp) = pp {
-                                // UNSAFE: we drain the content just after the loop => no need to be valid seq
-                                for byte in unsafe { pp.as_bytes_mut() } {
-                                    *byte = 0u8;
-                                }
-                                pp.clear();
+                            if let Some(pp) = pp {
+                                clear_string(pp);
                             }
                             // there's no need to save settings here
                         }

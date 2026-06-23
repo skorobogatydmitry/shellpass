@@ -28,7 +28,7 @@ pub(crate) trait OsUi {
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
-    pass::{PassRepository, REPOSITORY},
+    pass::{PassRepository, REPOSITORY, clear_string},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
@@ -209,15 +209,19 @@ pub(crate) fn main(ui: &mut Ui) {
                                             REPOSITORY.lock().expect("repository is poisoned!");
                                         match repository.retrieve(entry, gnupg_secret) {
                                             Ok(data) => {
+                                                let data = std::hint::black_box(data);
                                                 ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                                                // UNSAFE: we drain the content just after the loop => no need to be valid seq
+                                                clear_string(data.1);
                                                 notifications::push_message(Message::new(
                                                     "copied".to_string(),
                                                     Kind::Success,
                                                 ));
                                             }
-                                            Err(e) => {
+                                            Err(_e) => {
+                                                // the error can possibly contain sensitive data from the message or TheRing
                                                 notifications::push_message(Message::new(
-                                                    format!("cannot copy: {e:#}"),
+                                                    "cannot retrieve the entry".to_string(),
                                                     Kind::Error,
                                                 ));
                                             }
