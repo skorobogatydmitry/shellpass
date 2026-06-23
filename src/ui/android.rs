@@ -1,4 +1,4 @@
-use egui::Ui;
+use egui::{Response, Ui};
 use jni::{
     EnvUnowned, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
@@ -17,11 +17,12 @@ use std::{
 
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
+    notifications::{self, Message},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
 static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+pub static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
 
 static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 pub static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
@@ -50,15 +51,20 @@ impl super::OsUi for Ui {
         self.label(pass_root_hint);
 
         if self.button("pick a new folder").highlight().clicked() {
-            // TODO: show error to the user
-            run_activity(ActivityClass::DocTreePickerActivity).expect("can't fire dir picker");
+            if let Err(e) = run_activity(ActivityClass::DocTreePickerActivity) {
+                notifications::push_message(Message::new(
+                    format!("cannot start directory picker: {e:#}"),
+                    notifications::Kind::Error,
+                ));
+            }
+            // TODO: move to settings ?
             thread::spawn(|| {
                 let new_pass_root = DIR_PICKER_RX
                     .get()
                     .and_then(|m| {
                         m.lock()
                             .expect("dir picker RX is poisoned!")
-                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough for the users
+                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a folder
                             .ok()
                     })
                     .flatten();
@@ -70,12 +76,19 @@ impl super::OsUi for Ui {
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self) -> bool {
+    fn gnupg_secret_key_settings(&mut self, _passphrase_setting: Response) -> bool {
         let button = self.button("pick a new file").highlight();
         if button.clicked() {
-            // TODO: show error to the user
-            run_activity(ActivityClass::FilePickerActivity).expect("can't fire file picker");
-            true // one activity - one request to process its results
+            match run_activity(ActivityClass::FilePickerActivity) {
+                Ok(()) => true, // one activity - one request to process its results
+                Err(e) => {
+                    notifications::push_message(Message::new(
+                        format!("cannot start file picker: {e:#}"),
+                        notifications::Kind::Error,
+                    ));
+                    false
+                }
+            }
         } else {
             false
         }
@@ -145,9 +158,15 @@ impl super::OsUi for Ui {
             Ok(())
         });
 
-        // TODO: show to the end-user / make sure the error doesn't contain the string
         if let Err(e) = result {
-            log::error!("unable to send password to clipboard: {e:#}");
+            let error_desc = format!("{e:#}");
+            notifications::push_message(Message::new(
+                format!(
+                    "unable to send password to clipboard: {}",
+                    error_desc.replace(s.as_str(), "****")
+                ),
+                notifications::Kind::Error,
+            ));
         }
     }
 }

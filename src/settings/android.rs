@@ -19,7 +19,7 @@ impl super::OsSettings for super::Settings {
         let new_secret_key_uri = file_picker_rx
             .lock()
             .expect("file picker RX is poisoned!")
-            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough for the users
+            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a file
             .context("cannot receive the picked file URI")?;
         log::debug!("new secret key URI from activity: {:?}", new_secret_key_uri);
         let new_secret_key_uri =

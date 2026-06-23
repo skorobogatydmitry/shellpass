@@ -8,6 +8,7 @@ use std::{
         mpsc::{self, Sender},
     },
     thread,
+    time::Duration,
 };
 
 use anyhow::{Context, bail};
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     finder::FINDER,
+    notifications::{self, Kind, Message},
     pass::{PassRepository, REPOSITORY},
 };
 
@@ -40,7 +42,13 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     Mutex::new(match Settings::try_load() {
         Ok(stored_settings) => stored_settings,
         Err(e) => {
-            log::warn!("can't load settings, fallback to defaults: {e:#}"); // TODO: show to the end-user
+            notifications::push_message(
+                Message::new(
+                    format!("no saved settings: {e:#}, loading defaults"),
+                    Kind::Warning,
+                )
+                .with_duration(Duration::from_secs(20)),
+            );
             Settings::new()
         }
     })
@@ -58,10 +66,9 @@ pub(crate) fn initialize() {
     let (tx, rx) = mpsc::channel();
 
     let settings = SETTINGS.lock().expect("settings are poisoned!");
-    if let Some(loaded_pass_root) = settings.pass_root.as_ref()
-        && let Err(e) = tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone()))
-    {
-        log::error!("unable to set initial pass root: {e:#}");
+    if let Some(loaded_pass_root) = settings.pass_root.as_ref() {
+        tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone()))
+            .expect("cannot send pass root initialization");
     }
 
     SETTINGS_UPDATE_EVENT_QUEUE
@@ -71,12 +78,19 @@ pub(crate) fn initialize() {
     thread::spawn(move || {
         loop {
             match rx.recv() {
-                Err(_e) => log::error!("settings update event channel is closed, exitting"),
+                Err(e) => {
+                    // TODO: crash the app
+                    notifications::push_message(Message::new(
+                        format!("settings update event channel is closed: {e:#}"),
+                        Kind::Error,
+                    ));
+                }
+
                 Ok(request) => {
                     let mut settings_updated = false;
                     match request {
                         SettingsUpdateReq::PassRoot(new_pass_root) => {
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned");
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
                             let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
                             repo.refresh_entries(new_pass_root.as_str());
                             drop(repo);
@@ -90,7 +104,7 @@ pub(crate) fn initialize() {
                             // reset the whole passphrase to the new value
                             // make sure we don't leak tails of strings - it's always zero-ed
                             // TODO: disable optimization for the following code
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned");
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
                             let pp = black_box(settings.gnupg_passphrase.replace(new_pp));
                             drop(settings);
                             if let Some(mut pp) = pp {
@@ -110,8 +124,10 @@ pub(crate) fn initialize() {
                                     settings.gnupg_secret_key = Some(key);
                                 }
                                 Err(e) => {
-                                    // TODO: show to the user
-                                    log::error!("unable to read secret key file: {e:#}");
+                                    notifications::push_message(Message::new(
+                                        format!("unable to read secret key file: {e:#}"),
+                                        Kind::Error,
+                                    ));
                                 }
                             }
                             settings_updated = true;
@@ -120,7 +136,11 @@ pub(crate) fn initialize() {
                     if settings_updated {
                         let settings = SETTINGS.lock().expect("settings are poisoned!");
                         if let Err(e) = settings.try_save() {
-                            log::error!("settings changed, but failed to save: {e:#}");
+                            // decided not to crash, as it's not fatal and causes the user to re-enter settings on restart
+                            notifications::push_message(Message::new(
+                                format!("error on saving settings: {e:#}"),
+                                Kind::Error,
+                            ));
                         }
                     }
                 }
@@ -131,11 +151,12 @@ pub(crate) fn initialize() {
 
 /// public API to send update requests to settings
 pub(crate) fn send_update_request(request: SettingsUpdateReq) {
-    // UNWRAP: initialized beforehand
-    let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE.get().unwrap();
-    if let Err(e) = settings_event_queue.send(request) {
-        log::error!("unable to send settings update request: {e:#}");
-    }
+    let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE
+        .get()
+        .expect("settings update queue is not ready");
+    settings_event_queue
+        .send(request)
+        .expect("error on sending settings update request");
 }
 
 /// tunable settings
@@ -222,11 +243,6 @@ impl Settings {
 
     pub(crate) fn pass_root(&self) -> Option<String> {
         self.pass_root.clone()
-    }
-
-    /// whether the settings has full config to decrypt passwords
-    pub(crate) fn has_gnupg_config(&self) -> bool {
-        self.gnupg_passphrase.is_some() && self.gnupg_secret_key.is_some()
     }
 
     /// returns currect secret wrapped

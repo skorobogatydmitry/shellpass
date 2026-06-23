@@ -11,6 +11,7 @@ use crate::finder::FINDER;
 const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
+pub(crate) mod notifications;
 pub(crate) mod pass;
 pub(crate) mod settings;
 pub(crate) mod ui;
@@ -22,6 +23,7 @@ impl App {
     pub fn new(
         _cc: &CreationContext,
     ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
+        notifications::initialize();
         {
             let mut finder = FINDER.lock().expect("finder is poisoned!");
             finder.search_routine();
@@ -47,7 +49,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    init_picker_activities().expect("unable to load file picker activity");
+    init_picker_activities().expect("error on initializing activities");
 
     let options = eframe::NativeOptions {
         android_app: Some(app),
@@ -61,7 +63,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
             App::new(cc)
         }),
     )
-    .unwrap()
+    .expect("cannot run application")
 }
 
 #[cfg(target_os = "linux")]

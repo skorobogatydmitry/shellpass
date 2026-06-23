@@ -3,12 +3,13 @@
 
 use std::sync::{LazyLock, Mutex};
 
-use egui::{CentralPanel, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
+use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
 #[cfg(target_os = "android")]
 pub use android::FILE_PICKER_RX;
+use egui_extras::{Size, StripBuilder};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -19,13 +20,14 @@ pub(crate) trait OsUi {
     fn pass_root_setting(&mut self);
     /// represet platform-specific part of settings
     /// must return whether the setting is finalized (ready to read the key)
-    fn gnupg_secret_key_settings(&mut self) -> bool;
+    fn gnupg_secret_key_settings(&mut self, passphrase_setting: Response) -> bool;
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
 
 use crate::{
     finder::FINDER,
+    notifications::{self, Kind, Message},
     pass::{PassRepository, REPOSITORY},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
@@ -91,60 +93,98 @@ fn gnupg_settings(ui: &mut Ui) {
         ),
     });
 
-    let secret_key_ready = ui.gnupg_secret_key_settings();
+    let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_edit);
 
-    // try to initialize the key using digest and passphrase
+    // try to initialize the key using digest (and passphrase on Linux)
     // digest in the settings can't be used here, as it can only be set if the previous load succeeded
     // so, even for passphrase change we rely on that the buffer has digest to load
-    if secret_key_ready || passphrase_edit.lost_focus() {
+    if secret_key_ready {
         let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
         let digest = ui_state.partial_gnupg_secret_key.clone(); //"AF0E12DF50A47F57522FDB5346B290E986B754D8"
         settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
     }
 }
 
+fn notifications_bar(ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        let row_height = ui.spacing().interact_size.y; // standard widget height
+        ui.spacing_mut().item_spacing.x = 0.0;
+
+        StripBuilder::new(ui)
+            .size(Size::remainder())
+            .size(Size::exact(row_height)) // width == height -> square
+            .horizontal(|mut strip| {
+                let notification = notifications::current_notification();
+                let show_close = notification.closable;
+                strip.cell(|ui| {
+                    ui.add(
+                        egui::ProgressBar::new(notification.remained())
+                            .animate(true)
+                            .text(notification.message)
+                            .fill(Color32::DARK_GRAY)
+                            .corner_radius(1.5),
+                    );
+                });
+                if show_close {
+                    strip.cell(|ui| {
+                        if ui
+                            .add_sized(
+                                [row_height, row_height],
+                                egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
+                            )
+                            .clicked()
+                        {
+                            notifications::expire_current();
+                        }
+                    });
+                }
+            });
+    });
+}
+
 pub(crate) fn main(ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
-    Panel::top("info").show_inside(ui, |ui| {
-        ui.top_padding();
-        ui.vertical_centered_justified(|ui| {
-            let repository = REPOSITORY.lock().expect("repository is poisoned!");
-            ui.label(match repository.entries_count() {
-                0 => "no entries found, check settings".to_string(),
-                count => format!("{} entries in your pass", count),
-            })
+    Panel::top("notifications")
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
+        .show_inside(ui, |ui| {
+            ui.top_padding();
+            notifications_bar(ui);
         });
-    });
 
-    let _bottom_bar_resps = Panel::bottom("search and settings").show_inside(ui, |ui| {
-        // search bar + settings button
-        let responses = ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                let image = egui::include_image!("../assets/cog.png");
-                let settings_button_resp = ui.button(image);
-                let settings_menu_resp = settings_menu(&settings_button_resp);
-                ui.centered_and_justified(|ui| {
-                    let mut finder = FINDER.lock().expect("finder is poisoned!");
-                    let seach_bar_resp = ui
-                        .add(
-                            egui::TextEdit::singleline(&mut finder.pattern)
-                                .hint_text("start typing to search"),
-                        )
-                        .highlight();
-                    if seach_bar_resp.changed() {
-                        finder.change_fence.notify_one();
-                    }
-                    drop(finder);
-                    (seach_bar_resp, settings_menu_resp)
+    Panel::bottom("search and settings")
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
+        .show_inside(ui, |ui| {
+            // search bar + settings button
+            let responses = ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    let image = egui::include_image!("../assets/cog.png");
+                    let settings_button_resp = ui.button(image);
+                    let settings_menu_resp = settings_menu(&settings_button_resp);
+                    ui.centered_and_justified(|ui| {
+                        let mut finder = FINDER.lock().expect("finder is poisoned!");
+                        let search_bar_resp = ui
+                            .add(
+                                egui::TextEdit::singleline(&mut finder.pattern)
+                                    .hint_text("start typing to search"),
+                            )
+                            .highlight();
+                        if search_bar_resp.changed() {
+                            finder.change_fence.notify_one();
+                        }
+                        drop(finder);
+
+                        // keep focus on the main input unless the settings menu is opened
+                        if settings_menu_resp.is_none() {
+                            search_bar_resp.request_focus();
+                        }
+                    })
                 })
-            })
+            });
+            ui.bottom_padding();
+            responses
         });
-        ui.bottom_padding();
-        responses
-    });
 
     // list of matching entries
-    let mut any_popup_opened = false;
     CentralPanel::no_frame().show_inside(ui, |ui| {
         let repository = REPOSITORY.lock().expect("repository is poisoned!");
         let entries_count = repository.entries_count();
@@ -158,43 +198,35 @@ pub(crate) fn main(ui: &mut Ui) {
                 _ => {
                     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                         finder.last_match.iter().for_each(|entry| {
-                            // TODO: notification on click
                             let entry_button = ui.selectable_label(false, entry.to_string());
-                            // TODO: avoid re-locking settings
-                            let settings = SETTINGS.lock().expect("settings are poinsoned!");
-                            let settings_has_gnupg_config = settings.has_gnupg_config();
-                            drop(settings);
-                            let gnupg_configuration_finished = if !settings_has_gnupg_config {
-                                let popup_resp =
-                                    egui::Popup::from_toggle_button_response(&entry_button)
-                                        .close_behavior(
-                                            egui::PopupCloseBehavior::CloseOnClickOutside,
-                                        )
-                                        .show(|ui| {
-                                            ui.vertical_centered_justified(|ui| {
-                                                gnupg_settings(ui);
-                                            });
-                                        });
-                                any_popup_opened = true;
-                                popup_resp
-                                    .map(|resp| resp.response.should_close())
-                                    .unwrap_or(false)
-                            } else {
-                                false
-                            };
-                            if entry_button.clicked() || gnupg_configuration_finished {
-                                let settings = SETTINGS.lock().expect("settings are poinsoned!");
+                            // TODO: show popup with GnuPG settings if they're missing
+                            if entry_button.clicked() {
+                                let settings = SETTINGS.lock().expect("settings are poisoned!");
                                 let gnupg_secret = settings.get_gnupg_secret();
-                                if let Some(gnupg_secret) = gnupg_secret {
-                                    let repository =
-                                        REPOSITORY.lock().expect("repository is poisoned!");
-                                    match repository.retrieve(entry, gnupg_secret) {
-                                        Ok(data) => {
-                                            ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                                match gnupg_secret {
+                                    Some(gnupg_secret) => {
+                                        let repository =
+                                            REPOSITORY.lock().expect("repository is poisoned!");
+                                        match repository.retrieve(entry, gnupg_secret) {
+                                            Ok(data) => {
+                                                ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                                                notifications::push_message(Message::new(
+                                                    "copied".to_string(),
+                                                    Kind::Success,
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                notifications::push_message(Message::new(
+                                                    format!("cannot copy: {e:#}"),
+                                                    Kind::Error,
+                                                ));
+                                            }
                                         }
-                                        // TODO: notify the end-user
-                                        Err(e) => log::error!("unable to retrieve an entry: {e:?}"),
                                     }
+                                    None => notifications::push_message(Message::new(
+                                        "check settings: GnuPG is not fully configured".to_string(),
+                                        Kind::Error,
+                                    )),
                                 }
                             }
                         });
@@ -203,17 +235,4 @@ pub(crate) fn main(ui: &mut Ui) {
             }
         }
     });
-
-    // TODO: figure why
-    // - it doesn't auto-resize interface on android
-    // - why it doesn't request focus on Linux
-    // keep focus on the main input unless there's a settings menu opened
-    // let (search_bar_resp, settings_menu_resp) = (
-    //     bottom_bar_resps.inner.inner.inner.inner.0,
-    //     bottom_bar_resps.inner.inner.inner.inner.1,
-    // );
-    // if settings_menu_resp.is_none() && !any_popup_opened {
-    //     log::info!("switchin to search bar");
-    //     search_bar_resp.request_focus();
-    // }
 }
