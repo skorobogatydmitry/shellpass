@@ -154,7 +154,7 @@ pub(crate) fn main(ui: &mut Ui) {
             notifications_bar(ui);
         });
 
-    let _bottom_bar_resps = Panel::bottom("search and settings")
+    Panel::bottom("search and settings")
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             // search bar + settings button
@@ -165,17 +165,21 @@ pub(crate) fn main(ui: &mut Ui) {
                     let settings_menu_resp = settings_menu(&settings_button_resp);
                     ui.centered_and_justified(|ui| {
                         let mut finder = FINDER.lock().expect("finder is poisoned!");
-                        let seach_bar_resp = ui
+                        let search_bar_resp = ui
                             .add(
                                 egui::TextEdit::singleline(&mut finder.pattern)
                                     .hint_text("start typing to search"),
                             )
                             .highlight();
-                        if seach_bar_resp.changed() {
+                        if search_bar_resp.changed() {
                             finder.change_fence.notify_one();
                         }
                         drop(finder);
-                        (seach_bar_resp, settings_menu_resp)
+
+                        // keep focus on the main input unless the settings menu is opened
+                        if settings_menu_resp.is_none() {
+                            search_bar_resp.request_focus();
+                        }
                     })
                 })
             });
@@ -184,7 +188,6 @@ pub(crate) fn main(ui: &mut Ui) {
         });
 
     // list of matching entries
-    let mut any_popup_opened = false;
     CentralPanel::no_frame().show_inside(ui, |ui| {
         let repository = REPOSITORY.lock().expect("repository is poisoned!");
         let entries_count = repository.entries_count();
@@ -198,47 +201,33 @@ pub(crate) fn main(ui: &mut Ui) {
                 _ => {
                     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                         finder.last_match.iter().for_each(|entry| {
-                            // TODO: notification on click
                             let entry_button = ui.selectable_label(false, entry.to_string());
-                            // TODO: avoid re-locking settings
-                            let settings = SETTINGS.lock().expect("settings are poinsoned!");
-                            let settings_has_gnupg_config = settings.has_gnupg_config();
-                            drop(settings);
-                            let gnupg_configuration_finished = if !settings_has_gnupg_config {
-                                let popup_resp =
-                                    egui::Popup::from_toggle_button_response(&entry_button)
-                                        .close_behavior(
-                                            egui::PopupCloseBehavior::CloseOnClickOutside,
-                                        )
-                                        .show(|ui| {
-                                            ui.vertical_centered_justified(|ui| {
-                                                gnupg_settings(ui);
-                                            });
-                                        });
-                                any_popup_opened = true;
-                                popup_resp
-                                    .map(|resp| resp.response.should_close())
-                                    .unwrap_or(false)
-                            } else {
-                                false
-                            };
-                            if entry_button.clicked() || gnupg_configuration_finished {
+                            // TODO: show popup with GnuPG settings if they're missing
+                            if entry_button.clicked() {
                                 let settings = SETTINGS.lock().expect("settings are poinsoned!");
                                 let gnupg_secret = settings.get_gnupg_secret();
-                                if let Some(gnupg_secret) = gnupg_secret {
-                                    let repository =
-                                        REPOSITORY.lock().expect("repository is poisoned!");
-                                    match repository.retrieve(entry, gnupg_secret) {
-                                        Ok(data) => {
-                                            ui.to_clipboard(format!("{}:{}", data.0, data.1));
-                                            notifications::push_message(
-                                                Message::new("copied")
-                                                    .with_duration(Duration::from_secs(3)),
-                                            );
+                                match gnupg_secret {
+                                    Some(gnupg_secret) => {
+                                        let repository =
+                                            REPOSITORY.lock().expect("repository is poisoned!");
+                                        match repository.retrieve(entry, gnupg_secret) {
+                                            Ok(data) => {
+                                                ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                                                notifications::push_message(
+                                                    Message::new("copied")
+                                                        .with_duration(Duration::from_secs(3)),
+                                                );
+                                            }
+                                            Err(e) => {
+                                                notifications::push_message(Message::new(
+                                                    format!("cannot copy: {e:#}").as_str(),
+                                                ));
+                                            }
                                         }
-                                        // TODO: notify the end-user
-                                        Err(e) => log::error!("unable to retrieve an entry: {e:?}"),
                                     }
+                                    None => notifications::push_message(Message::new(
+                                        "check settings: GnuPG is not fully configured",
+                                    )),
                                 }
                             }
                         });
@@ -247,17 +236,4 @@ pub(crate) fn main(ui: &mut Ui) {
             }
         }
     });
-
-    // TODO: figure why
-    // - it doesn't auto-resize interface on android
-    // - why it doesn't request focus on Linux
-    // keep focus on the main input unless there's a settings menu opened
-    // let (search_bar_resp, settings_menu_resp) = (
-    //     bottom_bar_resps.inner.inner.inner.inner.0,
-    //     bottom_bar_resps.inner.inner.inner.inner.1,
-    // );
-    // if settings_menu_resp.is_none() && !any_popup_opened {
-    //     log::info!("switchin to search bar");
-    //     search_bar_resp.request_focus();
-    // }
 }

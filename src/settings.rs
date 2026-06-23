@@ -224,11 +224,6 @@ impl Settings {
         self.pass_root.clone()
     }
 
-    /// whether the settings has full config to decrypt passwords
-    pub(crate) fn has_gnupg_config(&self) -> bool {
-        self.gnupg_passphrase.is_some() && self.gnupg_secret_key.is_some()
-    }
-
     /// returns currect secret wrapped
     pub(crate) fn get_gnupg_secret(&self) -> Option<GnuPGSecret<'_>> {
         Some(GnuPGSecret {

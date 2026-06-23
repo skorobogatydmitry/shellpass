@@ -37,7 +37,7 @@ pub(crate) trait PassRepository<Y: PassEntry> {
         // TODO: check if / how to make a decryption faster in debug with TheRing
         let (mut decrypted, _) = msg
             .decrypt_the_ring(secret.get_ring(), true)
-            .context("error on decrypting the message")?;
+            .context("cannot decrypt the message")?;
         Ok((
             entry.username(),
             decrypted.as_data_string()?.trim().to_string(),
