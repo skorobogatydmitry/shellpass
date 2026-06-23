@@ -16,7 +16,7 @@ impl super::OsUi for Ui {
 
     fn pass_root_setting(&mut self) {
         self.label("pass repository root");
-        let settings = SETTINGS.lock().expect("settings are poisoned");
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
         let mut pass_root = settings.pass_root().unwrap_or_default();
         drop(settings);
 

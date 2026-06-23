@@ -87,7 +87,7 @@ impl super::PassEntry for PassEntry {
         // TODO: make sure all entries have >=1 components
         self.path_components
             .last()
-            .expect("no last component!")
+            .expect("no last component in entry path")
             .clone()
     }
 

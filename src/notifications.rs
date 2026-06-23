@@ -30,7 +30,7 @@ pub fn initialize() {
 pub fn current_notification() -> Notification {
     let mut current_notification = CURRENT_NOTIFICATION
         .lock()
-        .expect("notifications state is poisoned!");
+        .expect("current notification is poisoned!");
     // no notification or the current one expired
     if current_notification
         .as_ref()
@@ -90,7 +90,7 @@ pub struct Message {
 impl Message {
     pub fn new(message: String, kind: Kind) -> Self {
         Self {
-            message: message,
+            message,
             duration: Duration::from_secs(3),
             kind,
         }

@@ -22,7 +22,7 @@ use crate::{
 };
 
 static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+pub static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
 
 static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 pub static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
@@ -51,15 +51,20 @@ impl super::OsUi for Ui {
         self.label(pass_root_hint);
 
         if self.button("pick a new folder").highlight().clicked() {
-            // TODO: show error to the user
-            run_activity(ActivityClass::DocTreePickerActivity).expect("can't fire dir picker");
+            if let Err(e) = run_activity(ActivityClass::DocTreePickerActivity) {
+                notifications::push_message(Message::new(
+                    format!("cannot start directory picker: {e:#}"),
+                    notifications::Kind::Error,
+                ));
+            }
+            // TODO: move to settings ?
             thread::spawn(|| {
                 let new_pass_root = DIR_PICKER_RX
                     .get()
                     .and_then(|m| {
                         m.lock()
                             .expect("dir picker RX is poisoned!")
-                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough for the users
+                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a folder
                             .ok()
                     })
                     .flatten();
@@ -153,9 +158,15 @@ impl super::OsUi for Ui {
             Ok(())
         });
 
-        // TODO: show to the end-user / make sure the error doesn't contain the string
         if let Err(e) = result {
-            log::error!("unable to send password to clipboard: {e:#}");
+            let error_desc = format!("{e:#}");
+            notifications::push_message(Message::new(
+                format!(
+                    "unable to send password to clipboard: {}",
+                    error_desc.replace(s.as_str(), "****")
+                ),
+                notifications::Kind::Error,
+            ));
         }
     }
 }

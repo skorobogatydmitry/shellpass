@@ -84,6 +84,7 @@ This app is not (and possibly won't ever be) Google Play -ready by any means.
 - make sure decrypted data is handled safely
 - allow to clear settings
 - TODOs in the code
+- deal with PassEntry prefix strip
 - Make interface scale factor user-defined
 - Make a housekeeper to crash program if any thread crashes
 - Show entries as a tree

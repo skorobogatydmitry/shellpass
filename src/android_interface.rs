@@ -37,39 +37,42 @@ pub(crate) fn get_class<'a>(
     env: &mut Env<'a>,
     activity_class: ActivityClass,
 ) -> jni::errors::Result<JClass<'a>> {
-    let mut classes = CLASSES.lock().expect("classes cache is poisoned");
-    if classes.contains_key(&activity_class) {
-        let existing_class = classes.get(&activity_class).unwrap().as_raw();
-        // UNSAFE: casting raw pointer obtained from a global ref just above this line
-        return Ok(unsafe { JClass::from_raw(env, existing_class) });
-    } else {
-        let ctx =
-            unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
+    let mut classes = CLASSES.lock().expect("classes cache is poisoned!");
+    match classes.entry(activity_class) {
+        std::collections::hash_map::Entry::Occupied(entry) => {
+            let existing_class = entry.get().as_raw();
+            // UNSAFE: casting raw pointer obtained from a global ref just above this line
+            Ok(unsafe { JClass::from_raw(env, existing_class) })
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            let ctx =
+                unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
 
-        let loader = env
-            .call_method(
-                &ctx,
-                jni_str!("getClassLoader"),
-                jni_sig!(() -> java.lang.ClassLoader),
-                &[],
-            )?
-            .l()?;
+            let loader = env
+                .call_method(
+                    &ctx,
+                    jni_str!("getClassLoader"),
+                    jni_sig!(() -> java.lang.ClassLoader),
+                    &[],
+                )?
+                .l()?;
 
-        let class_name_jstr = env.new_string(activity_class.as_str())?;
-        let class_jobj = env
-            .call_method(
-                &loader,
-                jni_str!("loadClass"),
-                jni_sig!((java.lang.String) -> java.lang.Class),
-                &[JValue::Object(&class_name_jstr)],
-            )?
-            .l()?;
+            let class_name_jstr = env.new_string(entry.key().as_str())?;
+            let class_jobj = env
+                .call_method(
+                    &loader,
+                    jni_str!("loadClass"),
+                    jni_sig!((java.lang.String) -> java.lang.Class),
+                    &[JValue::Object(&class_name_jstr)],
+                )?
+                .l()?;
 
-        let local_class = JClass::cast_local(env, class_jobj)?;
-        let class = env.new_global_ref(&local_class)?;
-        classes.insert(activity_class, class);
+            let local_class = JClass::cast_local(env, class_jobj)?;
+            let class = env.new_global_ref(&local_class)?;
+            entry.insert(class);
 
-        Ok(local_class)
+            Ok(local_class)
+        }
     }
 }
 

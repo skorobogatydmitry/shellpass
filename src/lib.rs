@@ -49,7 +49,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    init_picker_activities().expect("unable to load file picker activity");
+    init_picker_activities().expect("error on initializing activities");
 
     let options = eframe::NativeOptions {
         android_app: Some(app),
@@ -63,7 +63,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
             App::new(cc)
         }),
     )
-    .unwrap()
+    .expect("cannot run application")
 }
 
 #[cfg(target_os = "linux")]

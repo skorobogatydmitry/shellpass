@@ -201,7 +201,7 @@ pub(crate) fn main(ui: &mut Ui) {
                             let entry_button = ui.selectable_label(false, entry.to_string());
                             // TODO: show popup with GnuPG settings if they're missing
                             if entry_button.clicked() {
-                                let settings = SETTINGS.lock().expect("settings are poinsoned!");
+                                let settings = SETTINGS.lock().expect("settings are poisoned!");
                                 let gnupg_secret = settings.get_gnupg_secret();
                                 match gnupg_secret {
                                     Some(gnupg_secret) => {
