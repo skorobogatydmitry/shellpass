@@ -1,4 +1,4 @@
-use egui::Ui;
+use egui::{Response, Ui};
 use jni::{
     EnvUnowned, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
@@ -17,6 +17,7 @@ use std::{
 
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
+    notifications::{self, Message},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
@@ -70,12 +71,19 @@ impl super::OsUi for Ui {
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self) -> bool {
+    fn gnupg_secret_key_settings(&mut self, _passphrase_setting: Response) -> bool {
         let button = self.button("pick a new file").highlight();
         if button.clicked() {
-            // TODO: show error to the user
-            run_activity(ActivityClass::FilePickerActivity).expect("can't fire file picker");
-            true // one activity - one request to process its results
+            match run_activity(ActivityClass::FilePickerActivity) {
+                Ok(()) => true, // one activity - one request to process its results
+                Err(e) => {
+                    notifications::push_message(Message::new(
+                        format!("cannot start file picker: {e:#}"),
+                        notifications::Kind::Error,
+                    ));
+                    false
+                }
+            }
         } else {
             false
         }

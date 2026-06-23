@@ -8,6 +8,7 @@ use std::{
         mpsc::{self, Sender},
     },
     thread,
+    time::Duration,
 };
 
 use anyhow::{Context, bail};
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     finder::FINDER,
+    notifications::{self, Kind, Message},
     pass::{PassRepository, REPOSITORY},
 };
 
@@ -40,7 +42,13 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     Mutex::new(match Settings::try_load() {
         Ok(stored_settings) => stored_settings,
         Err(e) => {
-            log::warn!("can't load settings, fallback to defaults: {e:#}"); // TODO: show to the end-user
+            notifications::push_message(
+                Message::new(
+                    format!("no saved settings: {e:#}, loading defaults"),
+                    Kind::Warning,
+                )
+                .with_duration(Duration::from_secs(20)),
+            );
             Settings::new()
         }
     })
@@ -110,8 +118,10 @@ pub(crate) fn initialize() {
                                     settings.gnupg_secret_key = Some(key);
                                 }
                                 Err(e) => {
-                                    // TODO: show to the user
-                                    log::error!("unable to read secret key file: {e:#}");
+                                    notifications::push_message(Message::new(
+                                        format!("unable to read secret key file: {e:#}"),
+                                        Kind::Error,
+                                    ));
                                 }
                             }
                             settings_updated = true;

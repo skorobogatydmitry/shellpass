@@ -1,10 +1,7 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::{
-    sync::{LazyLock, Mutex},
-    time::Duration,
-};
+use std::sync::{LazyLock, Mutex};
 
 use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
 
@@ -23,14 +20,14 @@ pub(crate) trait OsUi {
     fn pass_root_setting(&mut self);
     /// represet platform-specific part of settings
     /// must return whether the setting is finalized (ready to read the key)
-    fn gnupg_secret_key_settings(&mut self) -> bool;
+    fn gnupg_secret_key_settings(&mut self, passphrase_setting: Response) -> bool;
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
 
 use crate::{
     finder::FINDER,
-    notifications::{self, Message},
+    notifications::{self, Kind, Message},
     pass::{PassRepository, REPOSITORY},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
@@ -96,12 +93,12 @@ fn gnupg_settings(ui: &mut Ui) {
         ),
     });
 
-    let secret_key_ready = ui.gnupg_secret_key_settings();
+    let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_edit);
 
-    // try to initialize the key using digest and passphrase
+    // try to initialize the key using digest (and passphrase on Linux)
     // digest in the settings can't be used here, as it can only be set if the previous load succeeded
     // so, even for passphrase change we rely on that the buffer has digest to load
-    if secret_key_ready || passphrase_edit.lost_focus() {
+    if secret_key_ready {
         let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
         let digest = ui_state.partial_gnupg_secret_key.clone(); //"AF0E12DF50A47F57522FDB5346B290E986B754D8"
         settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
@@ -213,20 +210,22 @@ pub(crate) fn main(ui: &mut Ui) {
                                         match repository.retrieve(entry, gnupg_secret) {
                                             Ok(data) => {
                                                 ui.to_clipboard(format!("{}:{}", data.0, data.1));
-                                                notifications::push_message(
-                                                    Message::new("copied")
-                                                        .with_duration(Duration::from_secs(3)),
-                                                );
+                                                notifications::push_message(Message::new(
+                                                    "copied".to_string(),
+                                                    Kind::Success,
+                                                ));
                                             }
                                             Err(e) => {
                                                 notifications::push_message(Message::new(
-                                                    format!("cannot copy: {e:#}").as_str(),
+                                                    format!("cannot copy: {e:#}"),
+                                                    Kind::Error,
                                                 ));
                                             }
                                         }
                                     }
                                     None => notifications::push_message(Message::new(
-                                        "check settings: GnuPG is not fully configured",
+                                        "check settings: GnuPG is not fully configured".to_string(),
+                                        Kind::Error,
                                     )),
                                 }
                             }

@@ -81,7 +81,6 @@ keytool -genkeypair -v \
 This app is not (and possibly won't ever be) Google Play -ready by any means.
 
 # TODO
-- Add user-visible notifications
 - make sure decrypted data is handled safely
 - allow to clear settings
 - TODOs in the code

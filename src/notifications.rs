@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     sync::{
         LazyLock, Mutex, OnceLock,
         mpsc::{self, Receiver, Sender},
@@ -55,6 +56,12 @@ pub fn expire_current() {
 
 /// publish a new message
 pub fn push_message(message: Message) {
+    // log all messages
+    match message.kind {
+        Kind::Error => log::error!("{}", message.message),
+        Kind::Warning => log::warn!("{}", message.message),
+        Kind::Success => log::debug!("{}", message.message),
+    }
     let tx = TX
         .get()
         .expect("notifications delivery channel is not initialized");
@@ -77,19 +84,41 @@ fn try_receive() -> Option<Notification> {
 pub struct Message {
     message: String,
     duration: Duration,
+    kind: Kind,
 }
 
 impl Message {
-    pub fn new(message: &str) -> Self {
+    pub fn new(message: String, kind: Kind) -> Self {
         Self {
-            message: message.to_string(),
-            duration: Duration::from_secs(10),
+            message: message,
+            duration: Duration::from_secs(3),
+            kind,
         }
     }
 
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
         self
+    }
+}
+
+pub enum Kind {
+    Success,
+    Warning,
+    Error,
+}
+
+impl Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Error => "❗",
+                Self::Warning => "➡️",
+                Self::Success => "√",
+            }
+        )
     }
 }
 
@@ -139,7 +168,7 @@ impl Default for Notification {
 impl From<Message> for Notification {
     fn from(value: Message) -> Self {
         Self {
-            message: value.message,
+            message: format!("{} {}", value.kind, value.message),
             duration: value.duration,
             started_at: Instant::now(),
             closable: true, // all message-based notifications could be closed

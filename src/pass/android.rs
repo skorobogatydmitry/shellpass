@@ -5,10 +5,12 @@ use jni::{
     JValue, jni_sig, jni_str,
     objects::{JObject, JObjectArray, JString},
 };
-use log::warn;
 use ndk_context::android_context;
 
-use crate::android_interface::{ActivityClass, get_class, uri_path};
+use crate::{
+    android_interface::{ActivityClass, get_class, uri_path},
+    notifications::{self, Message},
+};
 
 use super::PassEntry as _PassEntry;
 
@@ -40,13 +42,11 @@ impl super::PassRepository<PassEntry> for PassRepository {
     }
 
     fn refresh_entries(&mut self, pass_root: &str) {
-        warn!("root is {pass_root}");
         match jni_min_helper::jni_with_env(|env| {
             let ctx =
                 unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
             let uri_jstr = env.new_string(pass_root)?;
 
-            // Uri.parse(uriStr)
             let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
             let files_jobj = env
                 .call_static_method(
@@ -81,8 +81,12 @@ impl super::PassRepository<PassEntry> for PassRepository {
                     pass_root
                 );
             }
-            // TODO: show to the end-user
-            Err(e) => warn!("unable to retrieve list of GPG files of {pass_root}: {e}"),
+            Err(e) => {
+                notifications::push_message(Message::new(
+                    format!("unable to retrieve list of GPG files of {pass_root}: {e:#}"),
+                    notifications::Kind::Error,
+                ));
+            }
         }
     }
 }
