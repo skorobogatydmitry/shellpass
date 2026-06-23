@@ -81,7 +81,6 @@ keytool -genkeypair -v \
 This app is not (and possibly won't ever be) Google Play -ready by any means.
 
 # TODO
-- make sure decrypted data is handled safely
 - allow to clear settings
 - update README
   - mention `gpg --export-secret-keys "AF0E12DF50A47F57522FDB5346B290E986B754D8" > my.key`
