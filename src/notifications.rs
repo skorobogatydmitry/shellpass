@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::pass::{PassRepository, REPOSITORY};
+use crate::pass::{REPOSITORY, RepositoryAccessor};
 
 /// sink for messages
 static TX: OnceLock<Sender<Message>> = OnceLock::new();

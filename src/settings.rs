@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
-    pass::{PassRepository, REPOSITORY, clear_string},
+    pass::{REPOSITORY, RepositoryAccessor, clear_string},
 };
 
 /// interface for OS-specific settings functions
@@ -58,6 +58,7 @@ pub enum SettingsUpdateReq {
     PassRoot(String),
     GnuPGPassphrase(String),
     GnuPGSecretKey(String),
+    Reset,
 }
 
 /// initializes settings update events queue and
@@ -126,6 +127,23 @@ pub(crate) fn initialize() {
                                     ));
                                 }
                             }
+                            settings_updated = true;
+                        }
+                        SettingsUpdateReq::Reset => {
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
+                            let old_pp = settings.gnupg_passphrase.take();
+                            if let Some(old_pp) = old_pp {
+                                clear_string(old_pp);
+                            }
+                            settings.gnupg_secret_key = None;
+                            settings.pass_root = None;
+                            let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
+                            repo.clear();
+                            drop(repo);
+                            let finder = FINDER.lock().expect("finder is poisoned!");
+                            finder.change_fence.notify_one();
+
+                            // flush the saved settings
                             settings_updated = true;
                         }
                     }

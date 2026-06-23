@@ -8,26 +8,11 @@ use super::PassEntry as _PassEntry;
 use anyhow::Context;
 use walkdir::WalkDir;
 
-/// Simple implementation for Linux
-/// - list .gpg files in ~/.password-store to find all entries
-/// - use `pass ...` command to get passwords
-pub struct PassRepository {
-    entries: Vec<PassEntry>,
-    last_used_root: Option<PathBuf>,
-}
-
-impl super::PassRepository<PassEntry> for PassRepository {
-    fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            last_used_root: None,
-        }
-    }
-
+impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
     fn refresh_entries(&mut self, pass_root: &str) {
-        let pass_root = PathBuf::from(pass_root);
+        let pass_root_pb = PathBuf::from(pass_root);
         // TODO: return if any entries were updated
-        self.entries = WalkDir::new(&pass_root)
+        self.entries = WalkDir::new(pass_root)
             .into_iter()
             .filter_map(|e| {
                 e.ok().and_then(|e| {
@@ -39,8 +24,8 @@ impl super::PassRepository<PassEntry> for PassRepository {
                     {
                         // UNWRAP: all paths have pass_root as prefix
                         Some(PassEntry::from((
-                            &pass_root,
-                            e.into_path().strip_prefix(&pass_root).unwrap(),
+                            &pass_root_pb,
+                            e.into_path().strip_prefix(&pass_root_pb).unwrap(),
                         )))
                     } else {
                         None
@@ -49,7 +34,7 @@ impl super::PassRepository<PassEntry> for PassRepository {
             })
             .collect();
         // TODO: do this only on success
-        self.last_used_root = Some(pass_root);
+        self.last_used_root = Some(pass_root.to_string());
     }
 
     fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {

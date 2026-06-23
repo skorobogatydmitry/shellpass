@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use crate::pass::{PassEntry, PassEntryImpl, PassRepository, REPOSITORY};
+use crate::pass::{PassEntry, PassEntryImpl, REPOSITORY, RepositoryAccessor};
 
 pub static FINDER: LazyLock<Mutex<Finder<PassEntryImpl>>> =
     LazyLock::new(|| Mutex::new(Finder::new()));

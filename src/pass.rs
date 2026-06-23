@@ -10,29 +10,40 @@ use pgp::composed::Message;
 
 use crate::settings::GnuPGSecret;
 
-pub static REPOSITORY: LazyLock<Mutex<PassRepositoryImpl>> =
-    LazyLock::new(|| Mutex::new(PassRepositoryImpl::new()));
+pub static REPOSITORY: LazyLock<Mutex<PassRepository<PassEntryImpl>>> =
+    LazyLock::new(|| Mutex::new(PassRepository::new()));
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 
-/// Required interface for pass repository
-pub(crate) trait PassRepository<Y: PassEntry> {
-    /// create new repository for the UI to access
-    fn new() -> Self
-    where
-        Self: Sized;
-    /// get all entries matching a given pattern
-    fn get_by_pattern(&self, pattern: &str) -> Vec<&Y>;
-    /// number of entries in the pass
-    fn entries_count(&self) -> usize;
-    /// update list of entries within the provided pass repository root
-    fn refresh_entries(&mut self, pass_root: &str);
+pub(crate) struct PassRepository<Y: PassEntry> {
+    entries: Vec<Y>,
+    last_used_root: Option<String>,
+}
+
+// Non paltform-specific functionality
+impl<Y: PassEntry> PassRepository<Y> {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            last_used_root: None,
+        }
+    }
+
+    /// clear the repository
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.last_used_root = None;
+    }
+
     /// get (username, password) of the given entry
-    /// TODO: it's not a part of the trait, it seems
-    fn retrieve(&self, entry: &Y, secret: GnuPGSecret) -> anyhow::Result<(String, String)> {
+    pub fn retrieve(
+        &self,
+        entry: &PassEntryImpl,
+        secret: GnuPGSecret,
+    ) -> anyhow::Result<(String, String)> {
         let encrypted_data = entry.read()?;
         let msg = Message::from_bytes(encrypted_data.as_slice())
             .context("error on constructing encrypted message")?;
@@ -54,6 +65,16 @@ pub(crate) trait PassRepository<Y: PassEntry> {
     }
 }
 
+/// Required interface for pass repository
+pub(crate) trait RepositoryAccessor<Y: PassEntry> {
+    /// get all entries matching a given pattern
+    fn get_by_pattern(&self, pattern: &str) -> Vec<&Y>;
+    /// number of entries in the pass
+    fn entries_count(&self) -> usize;
+    /// update list of entries within the provided pass repository root
+    fn refresh_entries(&mut self, pass_root: &str);
+}
+
 /// a single entry in the pass repository
 /// it reflests the path to entry within the pass repository
 pub(crate) trait PassEntry: Display + Clone {
@@ -63,16 +84,11 @@ pub(crate) trait PassEntry: Display + Clone {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) type PassRepositoryImpl = linux::PassRepository;
-#[cfg(target_os = "android")]
-pub(crate) type PassRepositoryImpl = android::PassRepository;
-
-#[cfg(target_os = "linux")]
 pub(crate) type PassEntryImpl = linux::PassEntry;
 #[cfg(target_os = "android")]
 pub(crate) type PassEntryImpl = android::PassEntry;
 
-/// a method to clear strings after use
+/// a method to clear sensitive strings after use
 // TODO: disallow optimizing-out the call
 pub fn clear_string(s: String) {
     let mut s = hint::black_box(s);
