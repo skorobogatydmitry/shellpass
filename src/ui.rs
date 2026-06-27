@@ -45,8 +45,9 @@ static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
 struct UiState {
     #[allow(dead_code)] // only for android
     partial_gnupg_secret_key: String,
-    partial_gnupg_passphrase: String,
+    #[allow(dead_code)] // only for android
     partial_pass_root: String,
+    partial_gnupg_passphrase: String,
 }
 
 /// menu with all the settings
