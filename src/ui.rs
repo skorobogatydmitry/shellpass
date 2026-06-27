@@ -9,7 +9,15 @@ use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response,
 pub(crate) mod android;
 #[cfg(target_os = "android")]
 pub use android::FILE_PICKER_RX;
+
 use egui_extras::{Size, StripBuilder};
+
+use crate::{
+    finder::FINDER,
+    notifications::{self, Kind, Message},
+    pass::{REPOSITORY, RepositoryAccessor, clear_string},
+    settings::{self, SETTINGS, SettingsUpdateReq},
+};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -24,13 +32,6 @@ pub(crate) trait OsUi {
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
-
-use crate::{
-    finder::FINDER,
-    notifications::{self, Kind, Message},
-    pass::{REPOSITORY, RepositoryAccessor, clear_string},
-    settings::{self, SETTINGS, SettingsUpdateReq},
-};
 
 static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
     Mutex::new(UiState {
@@ -53,7 +54,7 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            ScrollArea::vertical().auto_shrink(true).show(ui, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     ui.pass_root_setting();
                     gnupg_settings(ui);
@@ -91,13 +92,15 @@ fn gnupg_settings(ui: &mut Ui) {
     }
     drop(ui_state);
 
-    ui.label(match settings_key_digest {
-        None => "no secret key loaded".to_string(),
-        Some(settings_digest) => format!(
-            "current key digest\n{}",
-            settings_digest.to_ascii_uppercase()
-        ),
-    });
+    match settings_key_digest {
+        None => {
+            ui.label("no secret key loaded");
+        }
+        Some(settings_digest) => {
+            ui.label("current key digest");
+            ui.label(settings_digest.to_ascii_uppercase());
+        }
+    }
 
     let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_edit);
 
