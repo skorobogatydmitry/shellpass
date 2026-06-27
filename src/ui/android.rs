@@ -31,11 +31,11 @@ impl super::OsUi for Ui {
     /// there's an area in android screen which is actually occupied by status bar
     /// let's keep it clean
     fn top_padding(&mut self) {
-        self.add_space(32.0);
+        self.add_space(38.0);
     }
     /// some models have round bottom corners...
     fn bottom_padding(&mut self) {
-        self.add_space(10.0);
+        self.add_space(20.0);
     }
 
     fn pass_root_setting(&mut self) {
