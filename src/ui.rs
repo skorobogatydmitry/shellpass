@@ -157,14 +157,8 @@ pub(crate) fn main(ui: &mut Ui) {
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             ui.top_padding();
-            notifications_bar(ui);
-        });
-
-    Panel::bottom("search and settings")
-        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
-        .show_inside(ui, |ui| {
             // search bar + settings button
-            let responses = ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let image = egui::include_image!("../assets/cog.png");
                     let settings_button_resp = ui.button(image);
@@ -186,11 +180,10 @@ pub(crate) fn main(ui: &mut Ui) {
                         if settings_menu_resp.is_none() {
                             search_bar_resp.request_focus();
                         }
-                    })
-                })
+                    });
+                });
             });
-            ui.bottom_padding();
-            responses
+            notifications_bar(ui);
         });
 
     // list of matching entries
@@ -247,5 +240,6 @@ pub(crate) fn main(ui: &mut Ui) {
                 }
             }
         }
+        ui.bottom_padding();
     });
 }
