@@ -116,38 +116,44 @@ fn gnupg_settings(ui: &mut Ui) {
 
 fn notifications_bar(ui: &mut Ui) {
     ui.horizontal(|ui| {
-        let row_height = ui.spacing().interact_size.y; // standard widget height
         ui.spacing_mut().item_spacing.x = 0.0;
-
-        StripBuilder::new(ui)
-            .size(Size::remainder())
-            .size(Size::exact(row_height)) // width == height -> square
-            .horizontal(|mut strip| {
-                let notification = notifications::current_notification();
-                let show_close = notification.closable;
-                strip.cell(|ui| {
-                    ui.add(
-                        egui::ProgressBar::new(notification.remained())
-                            .animate(true)
-                            .text(notification.message)
-                            .fill(Color32::DARK_GRAY)
-                            .corner_radius(1.5),
-                    );
-                });
-                if show_close {
-                    strip.cell(|ui| {
-                        if ui
-                            .add_sized(
-                                [row_height, row_height],
-                                egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
-                            )
-                            .clicked()
-                        {
-                            notifications::expire_current();
-                        }
+        match notifications::current_notification() {
+            Some(notification) => {
+                let row_height = ui.spacing().interact_size.y;
+                StripBuilder::new(ui)
+                    .size(Size::remainder())
+                    .size(Size::exact(row_height)) // width == height -> square
+                    .horizontal(|mut strip| {
+                        strip.cell(|ui| {
+                            ui.add(
+                                egui::ProgressBar::new(notification.remained())
+                                    .animate(true)
+                                    .text(notification.message)
+                                    .fill(Color32::DARK_GRAY)
+                                    .corner_radius(1.5),
+                            );
+                        });
+                        strip.cell(|ui| {
+                            if ui
+                                .add_sized(
+                                    [row_height, row_height],
+                                    egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
+                                )
+                                .clicked()
+                            {
+                                notifications::expire_current();
+                            }
+                        });
                     });
-                }
-            });
+            }
+            None => {
+                let repository = REPOSITORY.lock().expect("repository is poisoned!");
+                ui.label(match repository.entries_count() {
+                    0 => "no entries found, check settings".to_string(),
+                    count => format!("{} entries in your pass", count),
+                });
+            }
+        }
     });
 }
 

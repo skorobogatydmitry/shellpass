@@ -7,8 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::pass::{REPOSITORY, RepositoryAccessor};
-
 /// sink for messages
 static TX: OnceLock<Sender<Message>> = OnceLock::new();
 static RX: OnceLock<Mutex<Receiver<Message>>> = OnceLock::new();
@@ -27,7 +25,7 @@ pub fn initialize() {
 /// - replaces notifications when they expire
 /// - polls the queue
 /// - resets to default if the queue is empty
-pub fn current_notification() -> Notification {
+pub fn current_notification() -> Option<Notification> {
     let mut current_notification = CURRENT_NOTIFICATION
         .lock()
         .expect("current notification is poisoned!");
@@ -40,10 +38,7 @@ pub fn current_notification() -> Notification {
         *current_notification = try_receive();
     }
 
-    current_notification
-        .as_ref()
-        .map(Notification::clone)
-        .unwrap_or_default()
+    current_notification.as_ref().map(Notification::clone)
 }
 
 /// displace current notification
@@ -128,39 +123,19 @@ pub struct Notification {
     pub message: String,
     duration: Duration,
     started_at: Instant,
-    pub closable: bool,
 }
 impl Notification {
     fn expired(&self) -> bool {
-        self.closable && self.started_at.elapsed() >= self.duration
+        self.started_at.elapsed() >= self.duration
     }
 
     /// returns current progress in [0,1)
     pub fn remained(&self) -> f32 {
-        if !self.closable {
-            1.0 // tells UI not to re-draw
-        } else if self.expired() {
+        if self.expired() {
             0.0 // avoid subtraction with overflow
         } else {
             (self.duration - self.started_at.elapsed()).as_millis() as f32
                 / self.duration.as_millis() as f32
-        }
-    }
-}
-
-impl Default for Notification {
-    fn default() -> Self {
-        let repository = REPOSITORY.lock().expect("repository is poisoned!");
-        let message = match repository.entries_count() {
-            0 => "no entries found, check settings".to_string(),
-            count => format!("{} entries in your pass", count),
-        };
-
-        Self {
-            message,
-            duration: Duration::from_hours(1), // effectively infinite
-            started_at: Instant::now(),
-            closable: false,
         }
     }
 }
@@ -171,7 +146,6 @@ impl From<Message> for Notification {
             message: format!("{} {}", value.kind, value.message),
             duration: value.duration,
             started_at: Instant::now(),
-            closable: true, // all message-based notifications could be closed
         }
     }
 }
