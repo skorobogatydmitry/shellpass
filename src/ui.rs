@@ -9,7 +9,15 @@ use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response,
 pub(crate) mod android;
 #[cfg(target_os = "android")]
 pub use android::FILE_PICKER_RX;
+
 use egui_extras::{Size, StripBuilder};
+
+use crate::{
+    finder::FINDER,
+    notifications::{self, Kind, Message},
+    pass::{REPOSITORY, RepositoryAccessor, clear_string},
+    settings::{self, SETTINGS, SettingsUpdateReq},
+};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -25,13 +33,6 @@ pub(crate) trait OsUi {
     fn to_clipboard(&self, s: String);
 }
 
-use crate::{
-    finder::FINDER,
-    notifications::{self, Kind, Message},
-    pass::{REPOSITORY, RepositoryAccessor, clear_string},
-    settings::{self, SETTINGS, SettingsUpdateReq},
-};
-
 static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
     Mutex::new(UiState {
         partial_gnupg_secret_key: String::new(),
@@ -44,8 +45,9 @@ static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
 struct UiState {
     #[allow(dead_code)] // only for android
     partial_gnupg_secret_key: String,
-    partial_gnupg_passphrase: String,
+    #[allow(dead_code)] // only for android
     partial_pass_root: String,
+    partial_gnupg_passphrase: String,
 }
 
 /// menu with all the settings
@@ -53,7 +55,7 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            ScrollArea::vertical().auto_shrink(true).show(ui, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     ui.pass_root_setting();
                     gnupg_settings(ui);
@@ -91,13 +93,15 @@ fn gnupg_settings(ui: &mut Ui) {
     }
     drop(ui_state);
 
-    ui.label(match settings_key_digest {
-        None => "no secret key loaded".to_string(),
-        Some(settings_digest) => format!(
-            "current key digest\n{}",
-            settings_digest.to_ascii_uppercase()
-        ),
-    });
+    match settings_key_digest {
+        None => {
+            ui.label("no secret key loaded");
+        }
+        Some(settings_digest) => {
+            ui.label("current key digest");
+            ui.label(settings_digest.to_ascii_uppercase());
+        }
+    }
 
     let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_edit);
 
@@ -113,38 +117,44 @@ fn gnupg_settings(ui: &mut Ui) {
 
 fn notifications_bar(ui: &mut Ui) {
     ui.horizontal(|ui| {
-        let row_height = ui.spacing().interact_size.y; // standard widget height
         ui.spacing_mut().item_spacing.x = 0.0;
-
-        StripBuilder::new(ui)
-            .size(Size::remainder())
-            .size(Size::exact(row_height)) // width == height -> square
-            .horizontal(|mut strip| {
-                let notification = notifications::current_notification();
-                let show_close = notification.closable;
-                strip.cell(|ui| {
-                    ui.add(
-                        egui::ProgressBar::new(notification.remained())
-                            .animate(true)
-                            .text(notification.message)
-                            .fill(Color32::DARK_GRAY)
-                            .corner_radius(1.5),
-                    );
-                });
-                if show_close {
-                    strip.cell(|ui| {
-                        if ui
-                            .add_sized(
-                                [row_height, row_height],
-                                egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
-                            )
-                            .clicked()
-                        {
-                            notifications::expire_current();
-                        }
+        match notifications::current_notification() {
+            Some(notification) => {
+                let row_height = ui.spacing().interact_size.y;
+                StripBuilder::new(ui)
+                    .size(Size::remainder())
+                    .size(Size::exact(row_height)) // width == height -> square
+                    .horizontal(|mut strip| {
+                        strip.cell(|ui| {
+                            ui.add(
+                                egui::ProgressBar::new(notification.remained())
+                                    .animate(true)
+                                    .text(notification.message)
+                                    .fill(Color32::DARK_GRAY)
+                                    .corner_radius(1.5),
+                            );
+                        });
+                        strip.cell(|ui| {
+                            if ui
+                                .add_sized(
+                                    [row_height, row_height],
+                                    egui::Button::new("✖").fill(egui::Color32::TRANSPARENT),
+                                )
+                                .clicked()
+                            {
+                                notifications::expire_current();
+                            }
+                        });
                     });
-                }
-            });
+            }
+            None => {
+                let repository = REPOSITORY.lock().expect("repository is poisoned!");
+                ui.label(match repository.entries_count() {
+                    0 => "no entries found, check settings".to_string(),
+                    count => format!("{} entries in your pass", count),
+                });
+            }
+        }
     });
 }
 
@@ -154,14 +164,8 @@ pub(crate) fn main(ui: &mut Ui) {
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             ui.top_padding();
-            notifications_bar(ui);
-        });
-
-    Panel::bottom("search and settings")
-        .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
-        .show_inside(ui, |ui| {
             // search bar + settings button
-            let responses = ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let image = egui::include_image!("../assets/cog.png");
                     let settings_button_resp = ui.button(image);
@@ -183,11 +187,10 @@ pub(crate) fn main(ui: &mut Ui) {
                         if settings_menu_resp.is_none() {
                             search_bar_resp.request_focus();
                         }
-                    })
-                })
+                    });
+                });
             });
-            ui.bottom_padding();
-            responses
+            notifications_bar(ui);
         });
 
     // list of matching entries
@@ -244,5 +247,6 @@ pub(crate) fn main(ui: &mut Ui) {
                 }
             }
         }
+        ui.bottom_padding();
     });
 }

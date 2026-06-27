@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Context;
 use jni::{
@@ -55,9 +55,10 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
             Ok(gpg_files)
         }) {
             Ok(gpg_files) => {
+                // TODO: catch and show all such errors to the user
                 self.entries = gpg_files
                     .into_iter()
-                    .map(|url| PassEntry::new(pass_root, url))
+                    .map(|url| PassEntry::try_from((pass_root, url)).expect("unable to make entry"))
                     .collect();
                 self.last_used_root = Some(pass_root.to_string());
                 log::info!(
@@ -78,55 +79,22 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
 
 #[derive(Clone)]
 pub(crate) struct PassEntry {
-    root: String,
-    suffix: String,
-}
-
-impl PassEntry {
-    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass
-    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass/document/primary%3ADocuments%2Fpass%2F1.gpg
-    fn new(root: &str, uri: String) -> Self {
-        // TODO: validate
-        // UNWRAP: uri should start from the prefix
-        Self {
-            root: root.to_string(),
-            suffix: uri.strip_prefix(root).unwrap().to_string(),
-        }
-    }
-
-    /// makes user-digestable relative (from root) path within the repo
-    fn entry_path(&self) -> String {
-        // TODO: validate
-        let real_root_path = uri_path(&self.root).expect("cannot get entry's root path");
-        let entry_full_path = uri_path(&self.suffix).expect("cannot get entry's full path");
-        entry_full_path
-            .strip_prefix(&real_root_path)
-            .expect("entry doesn't start from root's path")[1..]
-            .to_string()
-    }
+    // full path for storage API, e.g. content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass/document/primary%3ADocuments%2Fpass%2F1.gpg
+    android_path: String,
+    // user-visible path, e.g. dir1/dir2/some.gpg
+    entry_relpath: PathBuf,
 }
 
 impl super::PassEntry for PassEntry {
-    /// search for match only within relative path
-    fn contains(&self, pattern: &str) -> bool {
-        self.entry_path().contains(pattern)
-    }
-
-    fn username(&self) -> String {
-        // TODO: store the convention in common place
-        self.entry_path()
-            .split("/")
-            .last()
-            .unwrap_or("n/a")
-            .to_string()
+    fn entry_relpath(&self) -> &PathBuf {
+        &self.entry_relpath
     }
 
     fn read(&self) -> anyhow::Result<Vec<u8>> {
         jni_min_helper::jni_with_env(|env| {
             let ctx =
                 unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
-            let jni_secret_key_uri =
-                env.new_string(format!("{}{}", self.root, self.suffix).as_str())?;
+            let jni_secret_key_uri = env.new_string(self.android_path.as_str())?;
             let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
             let bytes_jobj = env
                 .call_static_method(
@@ -144,14 +112,26 @@ impl super::PassEntry for PassEntry {
     }
 }
 
-impl Display for PassEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.entry_path()
-                .strip_suffix(".gpg")
-                .expect("cannot strip prefix from entry path")
-        )
+impl TryFrom<(&str, String)> for PassEntry {
+    type Error = anyhow::Error;
+
+    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass
+    // content://com.android.externalstorage.documents/tree/primary%3ADocuments%2Fpass/document/primary%3ADocuments%2Fpass%2F1.gpg
+    fn try_from(value: (&str, String)) -> Result<Self, Self::Error> {
+        let (root, uri) = value;
+        // Documents/pass
+        let real_root_path = uri_path(root).context("cannot get entry's root path")?;
+        // Documents/pass/some.gpg
+        let entry_full_path = uri_path(&uri).context("cannot get entry's full path")?;
+        // some.gpg
+        let entry_relpath = &entry_full_path
+            .strip_prefix(&real_root_path)
+            .context("entry doesn't start from root's path")?[1..];
+
+        Ok(Self {
+            android_path: uri,
+            entry_relpath: PathBuf::from_str(entry_relpath)
+                .expect("entry relative path can't be interpreted"),
+        })
     }
 }

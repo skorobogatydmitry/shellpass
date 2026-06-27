@@ -2,6 +2,7 @@ use std::{
     fmt::Display,
     hint,
     io::Read,
+    path::PathBuf,
     sync::{LazyLock, Mutex},
 };
 
@@ -78,8 +79,20 @@ pub(crate) trait RepositoryAccessor<Y: PassEntry> {
 /// a single entry in the pass repository
 /// it reflests the path to entry within the pass repository
 pub(crate) trait PassEntry: Display + Clone {
-    fn contains(&self, pattern: &str) -> bool;
-    fn username(&self) -> String;
+    /// search for invocations only in pass entry's displayed to the user
+    fn contains(&self, pattern: &str) -> bool {
+        self.to_string().contains(pattern)
+    }
+    /// it's my personal convention: file name is a username
+    fn username(&self) -> String {
+        self.entry_relpath()
+            .file_stem()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or("n/a".to_string())
+    }
+    /// file path relative to the root
+    fn entry_relpath(&self) -> &PathBuf;
+    /// read entry's file content
     fn read(&self) -> anyhow::Result<Vec<u8>>;
 }
 
@@ -87,6 +100,14 @@ pub(crate) trait PassEntry: Display + Clone {
 pub(crate) type PassEntryImpl = linux::PassEntry;
 #[cfg(target_os = "android")]
 pub(crate) type PassEntryImpl = android::PassEntry;
+
+impl Display for PassEntryImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut relpath = self.entry_relpath().clone();
+        relpath.set_extension("");
+        write!(f, "{}", relpath.to_string_lossy())
+    }
+}
 
 /// a method to clear sensitive strings after use
 // TODO: disallow optimizing-out the call
