@@ -31,11 +31,11 @@ impl super::OsUi for Ui {
     /// there's an area in android screen which is actually occupied by status bar
     /// let's keep it clean
     fn top_padding(&mut self) {
-        self.add_space(32.0);
+        self.add_space(38.0);
     }
     /// some models have round bottom corners...
     fn bottom_padding(&mut self) {
-        self.add_space(10.0);
+        self.add_space(20.0);
     }
 
     fn pass_root_setting(&mut self) {
@@ -76,7 +76,7 @@ impl super::OsUi for Ui {
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self, _passphrase_setting: Response) -> bool {
+    fn gnupg_secret_key_settings(&mut self, _passphrase_update_issued: bool) -> bool {
         let button = self.button("pick a new file").highlight();
         if button.clicked() {
             match run_activity(ActivityClass::FilePickerActivity) {

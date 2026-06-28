@@ -1,7 +1,11 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::sync::{LazyLock, Mutex};
+use std::{
+    sync::{LazyLock, Mutex},
+    thread,
+    time::Duration,
+};
 
 use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
 
@@ -15,7 +19,7 @@ use egui_extras::{Size, StripBuilder};
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
-    pass::{REPOSITORY, RepositoryAccessor, clear_string},
+    pass::{PassEntryImpl, REPOSITORY, RepositoryAccessor, clear_string},
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
@@ -27,8 +31,8 @@ pub(crate) trait OsUi {
     fn bottom_padding(&mut self);
     fn pass_root_setting(&mut self);
     /// represet platform-specific part of settings
-    /// must return whether the setting is finalized (ready to read the key)
-    fn gnupg_secret_key_settings(&mut self, passphrase_setting: Response) -> bool;
+    /// must return whether the settings are finalized (ready to read the key)
+    fn gnupg_secret_key_settings(&mut self, passphrase_update_issued: bool) -> bool;
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
@@ -43,9 +47,9 @@ static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| {
 
 // UI temporary data storage
 struct UiState {
-    #[allow(dead_code)] // only for android
+    #[allow(dead_code)] // the buffer is only used on Linux
     partial_gnupg_secret_key: String,
-    #[allow(dead_code)] // only for android
+    #[allow(dead_code)] // the buffer is only used on Linux
     partial_pass_root: String,
     partial_gnupg_passphrase: String,
 }
@@ -70,8 +74,38 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
 
 /// part of the menu with GnuPG settings
 fn gnupg_settings(ui: &mut Ui) {
+    let passphrase_update_issued = gnupg_passphrase_setting(ui);
+
+    // secret key state
+    {
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
+        match settings.gnupg_secret_key_digest() {
+            None => {
+                ui.label("no secret key loaded");
+            }
+            Some(settings_digest) => {
+                ui.label("current key digest");
+                ui.label(settings_digest.to_ascii_uppercase());
+            }
+        }
+    }
+
+    let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_update_issued);
+
+    // try to initialize the key using digest (and passphrase on Linux)
+    // digest from the settings can't be used, as it can only be set by a the previous update request
+    // so, even for passphrase change we rely on that the buffer has a digest to load
+    if secret_key_ready {
+        let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
+        let digest = ui_state.partial_gnupg_secret_key.clone();
+        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
+    }
+}
+
+/// passphrase status & edit field
+/// returns whether an update request was issued
+fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
     let settings = SETTINGS.lock().expect("settings are poisoned!");
-    let settings_key_digest = settings.gnupg_secret_key_digest();
     ui.label(if settings.gnupg_passphrase_set() {
         "key passphrase is set"
     } else {
@@ -86,32 +120,14 @@ fn gnupg_settings(ui: &mut Ui) {
             .hint_text("passphrase for secret key")
             .password(true),
     );
+
     if passphrase_edit.lost_focus() {
         let mut pp = String::new();
         std::mem::swap(passphrase_ui_buf, &mut pp);
         settings::send_update_request(SettingsUpdateReq::GnuPGPassphrase(pp));
-    }
-    drop(ui_state);
-
-    match settings_key_digest {
-        None => {
-            ui.label("no secret key loaded");
-        }
-        Some(settings_digest) => {
-            ui.label("current key digest");
-            ui.label(settings_digest.to_ascii_uppercase());
-        }
-    }
-
-    let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_edit);
-
-    // try to initialize the key using digest (and passphrase on Linux)
-    // digest in the settings can't be used here, as it can only be set if the previous load succeeded
-    // so, even for passphrase change we rely on that the buffer has digest to load
-    if secret_key_ready {
-        let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-        let digest = ui_state.partial_gnupg_secret_key.clone(); //"AF0E12DF50A47F57522FDB5346B290E986B754D8"
-        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
+        true
+    } else {
+        false
     }
 }
 
@@ -160,12 +176,12 @@ fn notifications_bar(ui: &mut Ui) {
 
 pub(crate) fn main(ui: &mut Ui) {
     ui.set_zoom_factor(1.5);
-    Panel::top("notifications")
+    let (search_bar, settings_opened) = Panel::top("search and notifications")
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             ui.top_padding();
             // search bar + settings button
-            ui.horizontal(|ui| {
+            let search_bar_and_settins = ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let image = egui::include_image!("../assets/cog.png");
                     let settings_button_resp = ui.button(image);
@@ -183,17 +199,17 @@ pub(crate) fn main(ui: &mut Ui) {
                         }
                         drop(finder);
 
-                        // keep focus on the main input unless the settings menu is opened
-                        if settings_menu_resp.is_none() {
-                            search_bar_resp.request_focus();
-                        }
-                    });
-                });
+                        (search_bar_resp, !settings_menu_resp.is_none())
+                    })
+                })
             });
             notifications_bar(ui);
-        });
+            search_bar_and_settins.inner.inner.inner
+        })
+        .inner;
 
     // list of matching entries
+    let mut passphrase_popup_present = false;
     CentralPanel::no_frame().show_inside(ui, |ui| {
         let repository = REPOSITORY.lock().expect("repository is poisoned!");
         let entries_count = repository.entries_count();
@@ -207,41 +223,8 @@ pub(crate) fn main(ui: &mut Ui) {
                 _ => {
                     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                         finder.last_match.iter().for_each(|entry| {
-                            let entry_button = ui.selectable_label(false, entry.to_string());
-                            // TODO: show popup with GnuPG settings if they're missing
-                            if entry_button.clicked() {
-                                let settings = SETTINGS.lock().expect("settings are poisoned!");
-                                let gnupg_secret = settings.get_gnupg_secret();
-                                match gnupg_secret {
-                                    Some(gnupg_secret) => {
-                                        let repository =
-                                            REPOSITORY.lock().expect("repository is poisoned!");
-                                        match repository.retrieve(entry, gnupg_secret) {
-                                            Ok(data) => {
-                                                let data = std::hint::black_box(data);
-                                                ui.to_clipboard(format!("{}:{}", data.0, data.1));
-                                                // UNSAFE: we drain the content just after the loop => no need to be valid seq
-                                                clear_string(data.1);
-                                                notifications::push_message(Message::new(
-                                                    "copied".to_string(),
-                                                    Kind::Success,
-                                                ));
-                                            }
-                                            Err(_e) => {
-                                                // the error can possibly contain sensitive data from the message or TheRing
-                                                notifications::push_message(Message::new(
-                                                    "cannot retrieve the entry".to_string(),
-                                                    Kind::Error,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    None => notifications::push_message(Message::new(
-                                        "check settings: GnuPG is not fully configured".to_string(),
-                                        Kind::Error,
-                                    )),
-                                }
-                            }
+                            passphrase_popup_present =
+                                passphrase_popup_present || retrieve_entry(ui, entry);
                         });
                     });
                 }
@@ -249,4 +232,67 @@ pub(crate) fn main(ui: &mut Ui) {
         }
         ui.bottom_padding();
     });
+
+    if !passphrase_popup_present && !settings_opened {
+        search_bar.request_focus();
+    }
+}
+
+/// returns whether this retrieval process has passphrase prompt opened
+fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
+    let entry_button = ui.selectable_label(false, entry.to_string());
+    let mut passphrase_popup_present = false;
+    let passphrase_updated = {
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
+        if !settings.gnupg_passphrase_set() {
+            drop(settings);
+            let passphrase_updated = Popup::menu(&entry_button)
+                .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
+                .show(|ui| gnupg_passphrase_setting(ui));
+            passphrase_popup_present = passphrase_updated.is_some();
+            let passphrase_updated = passphrase_updated.is_some_and(|r| r.inner);
+            if passphrase_updated {
+                // settings update may happen slower
+                // TODO: support sync calls
+                thread::sleep(Duration::from_millis(50));
+            }
+            passphrase_updated
+        } else {
+            false
+        }
+    };
+    // 2 cases: everything is configured and the popup's edit lost the focus (the user pressed Enter or so)
+    if entry_button.clicked() || passphrase_updated {
+        let settings = SETTINGS.lock().expect("settings are poisoned!");
+        let gnupg_secret = settings.get_gnupg_secret();
+        match gnupg_secret {
+            Some(gnupg_secret) => {
+                let repository = REPOSITORY.lock().expect("repository is poisoned!");
+                match repository.retrieve(entry, gnupg_secret) {
+                    Ok(data) => {
+                        let data = std::hint::black_box(data);
+                        ui.to_clipboard(format!("{}:{}", data.0, data.1));
+                        // UNSAFE: we drain the content just after the loop => no need to be valid seq
+                        clear_string(data.1);
+                        notifications::push_message(Message::new(
+                            "copied".to_string(),
+                            Kind::Success,
+                        ));
+                    }
+                    Err(_e) => {
+                        // the error can possibly contain sensitive data from the message or TheRing
+                        notifications::push_message(Message::new(
+                            "cannot retrieve the entry, check settings".to_string(),
+                            Kind::Error,
+                        ));
+                    }
+                }
+            }
+            None => notifications::push_message(Message::new(
+                "check settings: GnuPG is not fully configured".to_string(),
+                Kind::Error,
+            )),
+        }
+    }
+    passphrase_popup_present
 }

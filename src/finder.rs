@@ -33,7 +33,6 @@ impl Finder<PassEntryImpl> {
                 finder = change_fence.wait(finder).expect("pattern is poisoned!");
                 let last_seen_pattern = finder.pattern.as_str();
 
-                // TODO: make a faster swap
                 let repository = REPOSITORY.lock().expect("repository is poisoned!");
                 let new_items: Vec<PassEntryImpl> = repository
                     .get_by_pattern(last_seen_pattern)
@@ -42,8 +41,7 @@ impl Finder<PassEntryImpl> {
                     .collect();
                 drop(repository);
 
-                finder.last_match.clear();
-                finder.last_match.extend(new_items);
+                finder.last_match = new_items;
                 info!("found matches: {}", finder.last_match.len());
             }
         });

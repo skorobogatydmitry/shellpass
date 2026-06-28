@@ -1,4 +1,4 @@
-use egui::{Response, Ui};
+use egui::Ui;
 
 use crate::{
     settings::{self, SETTINGS, SettingsUpdateReq},
@@ -31,7 +31,7 @@ impl super::OsUi for Ui {
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self, passphrase_setting: Response) -> bool {
+    fn gnupg_secret_key_settings(&mut self, passphrase_update_issued: bool) -> bool {
         let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
         let digest_buf = &mut ui_state.partial_gnupg_secret_key;
         let secret_key_setting =
@@ -40,7 +40,7 @@ impl super::OsUi for Ui {
         // (1) passphrase lost focus (request has been send) + digest is not empty
         // (2) digest lost focus + there's password in settings
         let settings = SETTINGS.lock().expect("settings are poisoned!");
-        (passphrase_setting.lost_focus() && !digest_buf.is_empty())
+        (passphrase_update_issued && !digest_buf.is_empty())
             || (secret_key_setting.lost_focus() && settings.gnupg_passphrase_set())
     }
 }
