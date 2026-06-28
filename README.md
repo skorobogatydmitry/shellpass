@@ -101,6 +101,7 @@ keytool -genkeypair -v \
 
 > Opportunities to contribute and enhance the app 
 
+- use Context instead of UI_STATE
 - TODOs in the code
 - Make a safe PassEntry prefix strip
 - Make interface scale factor configurable
