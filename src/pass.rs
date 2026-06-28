@@ -19,53 +19,6 @@ pub(crate) mod android;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 
-pub(crate) struct PassRepository<Y: PassEntry> {
-    entries: Vec<Y>,
-    last_used_root: Option<String>,
-}
-
-// Non paltform-specific functionality
-impl<Y: PassEntry> PassRepository<Y> {
-    fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            last_used_root: None,
-        }
-    }
-
-    /// clear the repository
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.last_used_root = None;
-    }
-
-    /// get (username, password) of the given entry
-    pub fn retrieve(
-        &self,
-        entry: &PassEntryImpl,
-        secret: GnuPGSecret,
-    ) -> anyhow::Result<(String, String)> {
-        let encrypted_data = entry.read()?;
-        let msg = Message::from_bytes(encrypted_data.as_slice())
-            .context("error on constructing encrypted message")?;
-        // TODO: check if / how to make a decryption faster in debug with TheRing
-        let (mut decrypted, _) = msg
-            .decrypt_the_ring(secret.get_ring(), true)
-            .context("cannot decrypt the message")?;
-        // TODO: potentially the messages leaks sensitive data here
-        // but it's not in our control
-        let mut password = String::new();
-        decrypted.read_to_string(&mut password)?;
-        // pass entries typically end with \n
-        if let Some(last_char) = password.chars().last()
-            && last_char == '\n'
-        {
-            password.pop();
-        }
-        Ok((entry.username(), password))
-    }
-}
-
 /// Required interface for pass repository
 pub(crate) trait RepositoryAccessor<Y: PassEntry> {
     /// get all entries matching a given pattern
@@ -106,6 +59,53 @@ impl Display for PassEntryImpl {
         let mut relpath = self.entry_relpath().clone();
         relpath.set_extension("");
         write!(f, "{}", relpath.to_string_lossy())
+    }
+}
+
+pub(crate) struct PassRepository<Y: PassEntry> {
+    entries: Vec<Y>,
+    last_used_root: Option<String>,
+}
+
+// Non paltform-specific functionality
+impl PassRepository<PassEntryImpl> {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            last_used_root: None,
+        }
+    }
+
+    /// clear the repository
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.last_used_root = None;
+    }
+
+    /// get (username, password) of the given entry
+    pub fn retrieve(
+        &self,
+        entry: &PassEntryImpl,
+        secret: GnuPGSecret,
+    ) -> anyhow::Result<(String, String)> {
+        let encrypted_data = entry.read()?;
+        let msg = Message::from_bytes(encrypted_data.as_slice())
+            .context("error on constructing encrypted message")?;
+        // TODO: check if / how to make a decryption faster in debug with TheRing
+        let (mut decrypted, _) = msg
+            .decrypt_the_ring(secret.get_ring(), true)
+            .context("cannot decrypt the message")?;
+        // TODO: potentially the messages leaks sensitive data here
+        // but it's not in our control
+        let mut password = String::new();
+        decrypted.read_to_string(&mut password)?;
+        // pass entries typically end with \n
+        if let Some(last_char) = password.chars().last()
+            && last_char == '\n'
+        {
+            password.pop();
+        }
+        Ok((entry.username(), password))
     }
 }
 

@@ -49,7 +49,7 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
 }
 
 #[derive(Clone)]
-pub(crate) struct PassEntry {
+pub struct PassEntry {
     pass_root: PathBuf,
     relpath: PathBuf,
 }

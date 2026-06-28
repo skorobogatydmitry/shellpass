@@ -76,7 +76,7 @@ impl super::OsUi for Ui {
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self, _passphrase_setting: Response) -> bool {
+    fn gnupg_secret_key_settings(&mut self, _passphrase_update_issued: bool) -> bool {
         let button = self.button("pick a new file").highlight();
         if button.clicked() {
             match run_activity(ActivityClass::FilePickerActivity) {
