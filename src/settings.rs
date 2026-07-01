@@ -24,16 +24,6 @@ use crate::{
     pass::{REPOSITORY, RepositoryAccessor, clear_string},
 };
 
-/// interface for OS-specific settings functions to gather data
-trait OsSettings {
-    fn read_secret_key(digest: String) -> anyhow::Result<pgp::composed::SignedSecretKey>;
-}
-
-#[cfg(target_os = "android")]
-mod android;
-#[cfg(target_os = "linux")]
-mod linux;
-
 static STORED_SETTINGS_FILE_NAME: &str = concat!(env!("CARGO_PKG_NAME"), "-settings.bson");
 
 static SETTINGS_UPDATE_EVENT_QUEUE: OnceLock<Sender<SettingsUpdateReq>> = OnceLock::new();
@@ -57,9 +47,11 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
 pub enum SettingsUpdateReq {
     PassRoot(Box<dyn FnOnce() -> anyhow::Result<String> + Send>),
     GnuPGPassphrase(String),
-    GnuPGSecretKey(String),
+    GnuPGSecretKey(GnuPGSecretKeyProvider),
     Reset,
 }
+
+pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecretKey> + Send>;
 
 /// initializes settings update events queue and
 /// spawns a thread to do heavy-lifting settings updates
@@ -126,8 +118,8 @@ pub(crate) fn initialize() {
                             }
                             // there's no need to save settings here
                         }
-                        SettingsUpdateReq::GnuPGSecretKey(digest) => {
-                            match Settings::read_secret_key(digest) {
+                        SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => {
+                            match secret_key_provider() {
                                 Ok(key) => {
                                     let mut settings =
                                         SETTINGS.lock().expect("settings are poisoned!");

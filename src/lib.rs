@@ -2,7 +2,7 @@ use eframe::CreationContext;
 use std::error::Error;
 
 #[cfg(target_os = "android")]
-use crate::ui::android::init_picker_activities;
+use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 

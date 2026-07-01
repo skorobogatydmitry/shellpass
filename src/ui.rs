@@ -8,20 +8,19 @@ use std::{
 };
 
 use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
-
-#[cfg(target_os = "android")]
-pub(crate) mod android;
-#[cfg(target_os = "android")]
-pub use android::FILE_PICKER_RX;
-
 use egui_extras::{Size, StripBuilder};
 
 use crate::{
     finder::FINDER,
     notifications::{self, Kind, Message},
     pass::{PassEntryImpl, REPOSITORY, RepositoryAccessor, clear_string},
-    settings::{self, SETTINGS, SettingsUpdateReq},
+    settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
 };
+
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+pub use android::init_picker_activities;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -32,8 +31,11 @@ pub(crate) trait OsUi {
     fn bottom_padding(&mut self);
     fn pass_root_setting(&mut self);
     /// represet platform-specific part of settings
-    /// must return whether the settings are finalized (ready to read the key)
-    fn gnupg_secret_key_settings(&mut self, passphrase_update_issued: bool) -> bool;
+    /// returns a key provider if it's ready, None otherwise
+    fn gnupg_secret_key_settings(
+        &mut self,
+        passphrase_update_issued: bool,
+    ) -> Option<GnuPGSecretKeyProvider>;
     /// send String to clipboard
     fn to_clipboard(&self, s: String);
 }
@@ -91,15 +93,13 @@ fn gnupg_settings(ui: &mut Ui) {
         }
     }
 
-    let secret_key_ready = ui.gnupg_secret_key_settings(passphrase_update_issued);
+    let secret_key_provider = ui.gnupg_secret_key_settings(passphrase_update_issued);
 
     // try to initialize the key using digest (and passphrase on Linux)
     // digest from the settings can't be used, as it can only be set by a the previous update request
     // so, even for passphrase change we rely on that the buffer has a digest to load
-    if secret_key_ready {
-        let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-        let digest = ui_state.partial_gnupg_secret_key.clone();
-        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(digest));
+    if let Some(secret_key_provider) = secret_key_provider {
+        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(secret_key_provider));
     }
 }
 
