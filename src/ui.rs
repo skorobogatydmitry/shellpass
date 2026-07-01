@@ -26,6 +26,7 @@ use crate::{
 #[cfg(target_os = "linux")]
 mod linux;
 
+/// OS-specific functionality of the UI
 pub(crate) trait OsUi {
     fn top_padding(&mut self);
     fn bottom_padding(&mut self);
@@ -199,7 +200,7 @@ pub(crate) fn main(ui: &mut Ui) {
                         }
                         drop(finder);
 
-                        (search_bar_resp, !settings_menu_resp.is_none())
+                        (search_bar_resp, settings_menu_resp.is_some())
                     })
                 })
             });
@@ -248,7 +249,7 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
             drop(settings);
             let passphrase_updated = Popup::menu(&entry_button)
                 .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
-                .show(|ui| gnupg_passphrase_setting(ui));
+                .show(gnupg_passphrase_setting);
             passphrase_popup_present = passphrase_updated.is_some();
             let passphrase_updated = passphrase_updated.is_some_and(|r| r.inner);
             if passphrase_updated {

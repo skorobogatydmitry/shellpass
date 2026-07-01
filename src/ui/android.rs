@@ -1,17 +1,16 @@
-use egui::{Response, Ui};
+use anyhow::anyhow;
+use egui::Ui;
 use jni::{
     EnvUnowned, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
 };
 use jni_min_helper::jni_with_env;
-use log::debug;
 use ndk_context::android_context;
 use std::{
     sync::{
         Mutex, OnceLock,
         mpsc::{Receiver, SyncSender},
     },
-    thread::{self},
     time::Duration,
 };
 
@@ -21,8 +20,8 @@ use crate::{
     settings::{self, SETTINGS, SettingsUpdateReq},
 };
 
-static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-pub static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+static DIR_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
+static DIR_PICKER_RX: OnceLock<Mutex<Receiver<anyhow::Result<String>>>> = OnceLock::new();
 
 static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
 pub static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
@@ -57,22 +56,15 @@ impl super::OsUi for Ui {
                     notifications::Kind::Error,
                 ));
             }
-            // TODO: move to settings ?
-            thread::spawn(|| {
-                let new_pass_root = DIR_PICKER_RX
+            settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
+                let dir_picked_rx = DIR_PICKER_RX
                     .get()
-                    .and_then(|m| {
-                        m.lock()
-                            .expect("dir picker RX is poisoned!")
-                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a folder
-                            .ok()
-                    })
-                    .flatten();
-                debug!("new pass root from activity: {:?}", new_pass_root);
-                if let Some(new_pass_root) = new_pass_root {
-                    settings::send_update_request(SettingsUpdateReq::PassRoot(new_pass_root));
-                }
-            });
+                    .expect("directory picker is not initialized");
+                dir_picked_rx
+                    .lock()
+                    .expect("dir picker RX is poisoned!")
+                    .recv_timeout(Duration::from_secs(90))? // let's assume that's enough to pick a folder
+            })));
         }
     }
 
@@ -234,11 +226,17 @@ extern "C" fn Java_java_DocTreePickerActivity_nativeOnActivityResult(
     DIR_PICKER_TX
         .get()
         .expect("dir picker channel is closed")
-        .send((result_code == -1).then(|| {
-            let uri = env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
-            // TODO: bubble-up errors / process correctly here
-            uri.resolve::<jni::errors::LogErrorAndDefault>()
-        }))
+        .send(
+            (result_code == -1)
+                .then(|| {
+                    let uri =
+                        env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
+                    uri.resolve::<jni::errors::LogErrorAndDefault>()
+                })
+                .ok_or(anyhow!(
+                    "dir picker is failed with result code {result_code}"
+                )),
+        )
         .expect("unable to send picked path");
 }
 

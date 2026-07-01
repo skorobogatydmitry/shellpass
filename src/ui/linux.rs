@@ -27,7 +27,10 @@ impl super::OsUi for Ui {
         let pass_root_buf = &mut ui_state.partial_pass_root;
 
         if self.text_edit_singleline(pass_root_buf).lost_focus() {
-            settings::send_update_request(SettingsUpdateReq::PassRoot(pass_root_buf.clone()));
+            let new_pass_root = pass_root_buf.clone();
+            settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
+                Ok(new_pass_root)
+            })));
         }
     }
 
