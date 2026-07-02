@@ -8,7 +8,7 @@ pub(crate) mod android_interface;
 
 use crate::finder::FINDER;
 
-const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
+pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
 pub(crate) mod notifications;
@@ -16,7 +16,7 @@ pub(crate) mod pass;
 pub(crate) mod settings;
 pub(crate) mod ui;
 
-pub(crate) struct App;
+pub struct App;
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
@@ -40,7 +40,7 @@ impl eframe::App for App {
     }
 }
 
-// is required to run on Android
+// Android's entrypoint
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
@@ -64,25 +64,4 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         }),
     )
     .expect("cannot run application")
-}
-
-#[cfg(target_os = "linux")]
-pub fn linux_main() -> eframe::Result {
-    env_logger::init();
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_decorations(false)
-            .with_inner_size([600.0, 200.0])
-            .with_min_inner_size([400.0, 150.0])
-            .with_transparent(true),
-        ..Default::default()
-    };
-    eframe::run_native(
-        NAME_VERSION,
-        options,
-        Box::new(|cc| {
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-            App::new(cc)
-        }),
-    )
 }

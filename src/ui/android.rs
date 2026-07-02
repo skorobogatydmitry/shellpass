@@ -1,7 +1,7 @@
 use anyhow::{Context, anyhow};
 use egui::Ui;
 use jni::{
-    EnvUnowned, jni_sig, jni_str,
+    EnvUnowned, Outcome, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
 };
 use jni_min_helper::jni_with_env;
@@ -24,8 +24,8 @@ use crate::{
 static DIR_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
 static DIR_PICKER_RX: OnceLock<Mutex<Receiver<anyhow::Result<String>>>> = OnceLock::new();
 
-static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+static FILE_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
+static FILE_PICKER_RX: OnceLock<Mutex<Receiver<anyhow::Result<String>>>> = OnceLock::new();
 
 impl super::OsUi for Ui {
     /// there's an area in android screen which is actually occupied by status bar
@@ -234,13 +234,19 @@ extern "C" fn Java_java_DocTreePickerActivity_nativeOnActivityResult(
         .send(
             (result_code == -1)
                 .then(|| {
-                    let uri =
-                        env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
-                    uri.resolve::<jni::errors::LogErrorAndDefault>()
+                    match env
+                        .with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()))
+                        .into_outcome()
+                    {
+                        Outcome::Ok(uri) => anyhow::Ok(uri),
+                        Outcome::Err(e) => Err(anyhow!("error on dir URI casting: {e:#}")),
+                        Outcome::Panic(_p) => Err(anyhow!("panicked on dir URI casting")),
+                    }
                 })
                 .ok_or(anyhow!(
                     "dir picker is failed with result code {result_code}"
-                )),
+                ))
+                .flatten(),
         )
         .expect("unable to send picked path");
 }
@@ -256,11 +262,21 @@ extern "C" fn Java_java_FilePickerActivity_nativeOnActivityResult(
     FILE_PICKER_TX
         .get()
         .expect("file picker channel is closed")
-        .send((result_code == -1).then(|| {
-            let uri = env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
-            // TODO: bubble-up errors / process correctly here
-            uri.resolve::<jni::errors::LogErrorAndDefault>()
-        }))
+        .send(
+            (result_code == -1)
+                .then(|| {
+                    match env
+                        .with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()))
+                        .into_outcome()
+                    {
+                        Outcome::Ok(uri) => anyhow::Ok(uri),
+                        Outcome::Err(e) => Err(anyhow!("error on file URI casting: {e:#}")),
+                        Outcome::Panic(_p) => Err(anyhow!("panicked on file URI casting")),
+                    }
+                })
+                .ok_or(anyhow!("file picker failed with result code {result_code}"))
+                .flatten(),
+        )
         .expect("unable to send picked file");
 }
 
@@ -274,10 +290,8 @@ fn read_secret_key() -> anyhow::Result<SignedSecretKey> {
         .lock()
         .expect("file picker RX is poisoned!")
         .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a file
-        .context("cannot receive the picked file URI")?;
+        .context("cannot receive the picked file URI")??;
     log::debug!("new secret key URI from activity: {:?}", new_secret_key_uri);
-    let new_secret_key_uri =
-        new_secret_key_uri.ok_or(anyhow!("no file uri received from picker"))?;
 
     let file_content = jni_min_helper::jni_with_env(|env| {
         let ctx =
