@@ -1,31 +1,31 @@
-use egui::{Response, Ui};
+use anyhow::{Context, anyhow};
+use egui::Ui;
 use jni::{
-    EnvUnowned, jni_sig, jni_str,
+    EnvUnowned, Outcome, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
 };
 use jni_min_helper::jni_with_env;
-use log::debug;
 use ndk_context::android_context;
+use pgp::composed::{Deserializable, SignedSecretKey};
 use std::{
     sync::{
         Mutex, OnceLock,
         mpsc::{Receiver, SyncSender},
     },
-    thread::{self},
     time::Duration,
 };
 
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
     notifications::{self, Message},
-    settings::{self, SETTINGS, SettingsUpdateReq},
+    settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
 };
 
-static DIR_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-pub static DIR_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+static DIR_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
+static DIR_PICKER_RX: OnceLock<Mutex<Receiver<anyhow::Result<String>>>> = OnceLock::new();
 
-static FILE_PICKER_TX: OnceLock<SyncSender<Option<String>>> = OnceLock::new();
-pub static FILE_PICKER_RX: OnceLock<Mutex<Receiver<Option<String>>>> = OnceLock::new();
+static FILE_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
+static FILE_PICKER_RX: OnceLock<Mutex<Receiver<anyhow::Result<String>>>> = OnceLock::new();
 
 impl super::OsUi for Ui {
     /// there's an area in android screen which is actually occupied by status bar
@@ -57,41 +57,38 @@ impl super::OsUi for Ui {
                     notifications::Kind::Error,
                 ));
             }
-            // TODO: move to settings ?
-            thread::spawn(|| {
-                let new_pass_root = DIR_PICKER_RX
+            settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
+                let dir_picked_rx = DIR_PICKER_RX
                     .get()
-                    .and_then(|m| {
-                        m.lock()
-                            .expect("dir picker RX is poisoned!")
-                            .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a folder
-                            .ok()
-                    })
-                    .flatten();
-                debug!("new pass root from activity: {:?}", new_pass_root);
-                if let Some(new_pass_root) = new_pass_root {
-                    settings::send_update_request(SettingsUpdateReq::PassRoot(new_pass_root));
-                }
-            });
+                    .expect("directory picker is not initialized");
+                dir_picked_rx
+                    .lock()
+                    .expect("dir picker RX is poisoned!")
+                    .recv_timeout(Duration::from_secs(90))? // let's assume that's enough to pick a folder
+            })));
         }
     }
 
-    fn gnupg_secret_key_settings(&mut self, _passphrase_update_issued: bool) -> bool {
+    fn gnupg_secret_key_settings(
+        &mut self,
+        _passphrase_update_issued: bool,
+    ) -> Option<GnuPGSecretKeyProvider> {
         let button = self.button("pick a new file").highlight();
-        if button.clicked() {
-            match run_activity(ActivityClass::FilePickerActivity) {
-                Ok(()) => true, // one activity - one request to process its results
-                Err(e) => {
-                    notifications::push_message(Message::new(
-                        format!("cannot start file picker: {e:#}"),
-                        notifications::Kind::Error,
-                    ));
-                    false
+        button
+            .clicked()
+            .then(|| {
+                match run_activity(ActivityClass::FilePickerActivity) {
+                    Ok(()) => Some(Box::new(read_secret_key) as GnuPGSecretKeyProvider), // one activity - one request to process its results
+                    Err(e) => {
+                        notifications::push_message(Message::new(
+                            format!("cannot start file picker: {e:#}"),
+                            notifications::Kind::Error,
+                        ));
+                        None
+                    }
                 }
-            }
-        } else {
-            false
-        }
+            })
+            .flatten()
     }
 
     fn to_clipboard(&self, s: String) {
@@ -234,11 +231,23 @@ extern "C" fn Java_java_DocTreePickerActivity_nativeOnActivityResult(
     DIR_PICKER_TX
         .get()
         .expect("dir picker channel is closed")
-        .send((result_code == -1).then(|| {
-            let uri = env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
-            // TODO: bubble-up errors / process correctly here
-            uri.resolve::<jni::errors::LogErrorAndDefault>()
-        }))
+        .send(
+            (result_code == -1)
+                .then(|| {
+                    match env
+                        .with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()))
+                        .into_outcome()
+                    {
+                        Outcome::Ok(uri) => anyhow::Ok(uri),
+                        Outcome::Err(e) => Err(anyhow!("error on dir URI casting: {e:#}")),
+                        Outcome::Panic(_p) => Err(anyhow!("panicked on dir URI casting")),
+                    }
+                })
+                .ok_or(anyhow!(
+                    "dir picker is failed with result code {result_code}"
+                ))
+                .flatten(),
+        )
         .expect("unable to send picked path");
 }
 
@@ -253,10 +262,55 @@ extern "C" fn Java_java_FilePickerActivity_nativeOnActivityResult(
     FILE_PICKER_TX
         .get()
         .expect("file picker channel is closed")
-        .send((result_code == -1).then(|| {
-            let uri = env.with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()));
-            // TODO: bubble-up errors / process correctly here
-            uri.resolve::<jni::errors::LogErrorAndDefault>()
-        }))
+        .send(
+            (result_code == -1)
+                .then(|| {
+                    match env
+                        .with_env(|env| JString::cast_local(env, uri).map(|js| js.to_string()))
+                        .into_outcome()
+                    {
+                        Outcome::Ok(uri) => anyhow::Ok(uri),
+                        Outcome::Err(e) => Err(anyhow!("error on file URI casting: {e:#}")),
+                        Outcome::Panic(_p) => Err(anyhow!("panicked on file URI casting")),
+                    }
+                })
+                .ok_or(anyhow!("file picker failed with result code {result_code}"))
+                .flatten(),
+        )
         .expect("unable to send picked file");
+}
+
+/// picked secret key readed for android
+fn read_secret_key() -> anyhow::Result<SignedSecretKey> {
+    // expect UI to populate the RX
+    let file_picker_rx = FILE_PICKER_RX
+        .get()
+        .ok_or(anyhow!("receiver for activity data is not ready"))?;
+    let new_secret_key_uri = file_picker_rx
+        .lock()
+        .expect("file picker RX is poisoned!")
+        .recv_timeout(Duration::from_secs(90)) // let's assume that's enough to pick a file
+        .context("cannot receive the picked file URI")??;
+    log::debug!("new secret key URI from activity: {:?}", new_secret_key_uri);
+
+    let file_content = jni_min_helper::jni_with_env(|env| {
+        let ctx =
+            unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
+        let jni_secret_key_uri = env.new_string(new_secret_key_uri)?;
+        let fs_adapter = get_class(env, ActivityClass::FSAdapter)?;
+        let bytes_jobj = env
+            .call_static_method(
+                &fs_adapter,
+                jni_str!("readFile"),
+                jni_sig!((android.content.Context, java.lang.String) -> [byte]),
+                &[JValue::Object(&ctx), JValue::Object(&jni_secret_key_uri)],
+            )?
+            .l()?;
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, bytes_jobj.as_raw()) };
+        env.convert_byte_array(&byte_array)
+    })
+    .context("unable to read secret key file")?;
+
+    SignedSecretKey::from_bytes(file_content.as_slice())
+        .context("error on loading secret key bytes")
 }

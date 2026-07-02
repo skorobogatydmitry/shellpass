@@ -24,16 +24,6 @@ use crate::{
     pass::{REPOSITORY, RepositoryAccessor, clear_string},
 };
 
-/// interface for OS-specific settings functions
-trait OsSettings {
-    fn read_secret_key(_unused_digest: String) -> anyhow::Result<pgp::composed::SignedSecretKey>;
-}
-
-#[cfg(target_os = "android")]
-mod android;
-#[cfg(target_os = "linux")]
-mod linux;
-
 static STORED_SETTINGS_FILE_NAME: &str = concat!(env!("CARGO_PKG_NAME"), "-settings.bson");
 
 static SETTINGS_UPDATE_EVENT_QUEUE: OnceLock<Sender<SettingsUpdateReq>> = OnceLock::new();
@@ -55,11 +45,13 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
 });
 
 pub enum SettingsUpdateReq {
-    PassRoot(String),
+    PassRoot(Box<dyn FnOnce() -> anyhow::Result<String> + Send>),
     GnuPGPassphrase(String),
-    GnuPGSecretKey(String),
+    GnuPGSecretKey(GnuPGSecretKeyProvider),
     Reset,
 }
+
+pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecretKey> + Send>;
 
 /// initializes settings update events queue and
 /// spawns a thread to do heavy-lifting settings updates
@@ -68,7 +60,8 @@ pub(crate) fn initialize() {
 
     let settings = SETTINGS.lock().expect("settings are poisoned!");
     if let Some(loaded_pass_root) = settings.pass_root.as_ref() {
-        tx.send(SettingsUpdateReq::PassRoot(loaded_pass_root.clone()))
+        let new_pass_root = loaded_pass_root.clone();
+        tx.send(SettingsUpdateReq::PassRoot(Box::new(|| Ok(new_pass_root))))
             .expect("cannot send pass root initialization");
     }
 
@@ -90,16 +83,28 @@ pub(crate) fn initialize() {
                 Ok(request) => {
                     let mut settings_updated = false;
                     match request {
-                        SettingsUpdateReq::PassRoot(new_pass_root) => {
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                            let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
-                            repo.refresh_entries(new_pass_root.as_str());
-                            drop(repo);
-                            // let the finder refresh matches
-                            let finder = FINDER.lock().expect("finder is poisoned!");
-                            finder.change_fence.notify_one();
-                            settings.pass_root.replace(new_pass_root);
-                            settings_updated = true;
+                        SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
+                            match new_pass_root_provider() {
+                                Ok(new_pass_root) => {
+                                    let mut settings =
+                                        SETTINGS.lock().expect("settings are poisoned!");
+                                    let mut repo =
+                                        REPOSITORY.lock().expect("repository is poisoned!");
+                                    repo.refresh_entries(new_pass_root.as_str());
+                                    drop(repo);
+                                    // let the finder refresh matches
+                                    let finder = FINDER.lock().expect("finder is poisoned!");
+                                    finder.change_fence.notify_one();
+                                    settings.pass_root.replace(new_pass_root);
+                                    settings_updated = true;
+                                }
+                                Err(e) => {
+                                    notifications::push_message(Message::new(
+                                        format!("cannot set new pass root: {e:#}"),
+                                        Kind::Error,
+                                    ));
+                                }
+                            }
                         }
                         SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
                             // reset the whole passphrase to the new value
@@ -113,8 +118,8 @@ pub(crate) fn initialize() {
                             }
                             // there's no need to save settings here
                         }
-                        SettingsUpdateReq::GnuPGSecretKey(digest) => {
-                            match Settings::read_secret_key(digest) {
+                        SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => {
+                            match secret_key_provider() {
                                 Ok(key) => {
                                     let mut settings =
                                         SETTINGS.lock().expect("settings are poisoned!");
