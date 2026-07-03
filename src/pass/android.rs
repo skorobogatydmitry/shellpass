@@ -26,7 +26,7 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
             .collect()
     }
 
-    fn refresh_entries(&mut self, pass_root: &str) {
+    fn fetch_entries_for(&mut self, pass_root: &str) {
         match jni_min_helper::jni_with_env(|env| {
             let ctx =
                 unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };

@@ -3,14 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::notifications::{self, Message};
+
 use super::PassEntry as _PassEntry;
 use anyhow::Context;
 use walkdir::WalkDir;
 
 impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
-    fn refresh_entries(&mut self, pass_root: &str) {
+    fn fetch_entries_for(&mut self, pass_root: &str) {
         let pass_root_pb = PathBuf::from(pass_root);
-        // TODO: return if any entries were updated
         self.entries = WalkDir::new(pass_root)
             .into_iter()
             .filter_map(|e| {
@@ -32,8 +33,15 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
                 })
             })
             .collect();
-        // TODO: do this only on success
-        self.last_used_root = Some(pass_root.to_string());
+        if self.entries.is_empty() {
+            // TODO: excavate & summarize all the errors
+            notifications::push_message(Message::new(
+                format!("no entries found for {pass_root}"),
+                notifications::Kind::Warning,
+            ));
+        } else {
+            self.last_used_root = Some(pass_root.to_string());
+        }
     }
 
     fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {

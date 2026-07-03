@@ -122,7 +122,7 @@ fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
             .password(true),
     );
 
-    if passphrase_edit.lost_focus() {
+    if passphrase_edit.lost_focus() && !passphrase_ui_buf.is_empty() {
         let mut pp = String::new();
         std::mem::swap(passphrase_ui_buf, &mut pp);
         settings::send_update_request(SettingsUpdateReq::GnuPGPassphrase(pp));
@@ -165,10 +165,22 @@ fn notifications_bar(ui: &mut Ui) {
                     });
             }
             None => {
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                ui.label(match repository.entries_count() {
-                    0 => "no entries found, check settings".to_string(),
-                    count => format!("{} entries in your pass", count),
+                ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        let mut repository = REPOSITORY.lock().expect("repository is poisoned!");
+                        if ui
+                            .button(egui::include_image!("../assets/refresh.png"))
+                            .clicked()
+                        {
+                            repository.refresh_entries();
+                        }
+                        ui.centered_and_justified(|ui| {
+                            ui.label(match repository.entries_count() {
+                                0 => "no entries found, check settings".to_string(),
+                                count => format!("{} entries in your pass", count),
+                            });
+                        });
+                    });
                 });
             }
         }
@@ -181,6 +193,8 @@ pub(crate) fn main(ui: &mut Ui) {
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             ui.top_padding();
+            // notifications / status info
+            notifications_bar(ui);
             // search bar + settings button
             let search_bar_and_settins = ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -204,7 +218,6 @@ pub(crate) fn main(ui: &mut Ui) {
                     })
                 })
             });
-            notifications_bar(ui);
             search_bar_and_settins.inner.inner.inner
         })
         .inner;

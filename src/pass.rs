@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use pgp::composed::Message;
 
-use crate::settings::GnuPGSecret;
+use crate::{notifications, settings::GnuPGSecret};
 
 pub static REPOSITORY: LazyLock<Mutex<PassRepository<PassEntryImpl>>> =
     LazyLock::new(|| Mutex::new(PassRepository::new()));
@@ -25,8 +25,8 @@ pub(crate) trait RepositoryAccessor<Y: PassEntry> {
     fn get_by_pattern(&self, pattern: &str) -> Vec<&Y>;
     /// number of entries in the pass
     fn entries_count(&self) -> usize;
-    /// update list of entries within the provided pass repository root
-    fn refresh_entries(&mut self, pass_root: &str);
+    /// fetch list of entries within the provided pass repository root
+    fn fetch_entries_for(&mut self, pass_root: &str);
 }
 
 /// a single entry in the pass repository
@@ -106,6 +106,21 @@ impl PassRepository<PassEntryImpl> {
             password.pop();
         }
         Ok((entry.username(), password))
+    }
+
+    /// just refresh list of entries for the current pass root
+    pub fn refresh_entries(&mut self) {
+        match self.last_used_root.as_ref() {
+            Some(last_pass_root) => {
+                // TODO: avoid clone
+                let root = last_pass_root.clone();
+                self.fetch_entries_for(root.as_str());
+            }
+            None => notifications::push_message(notifications::Message::new(
+                "pass root is not set".to_string(),
+                notifications::Kind::Warning,
+            )),
+        }
     }
 }
 

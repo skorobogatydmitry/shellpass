@@ -1,6 +1,6 @@
 [package]
 name = "shellpass"
-version = "1.3.2"
+version = "1.4.2"
 edition = "2024"
 
 [lib]
@@ -40,6 +40,7 @@ urlencoding = "2.1.3"
 [package.metadata.android]
 build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
 java_sources = "java"
+resources = "assets"
 
 [package.metadata.android.sdk]
 min_sdk_version = 23
@@ -68,3 +69,6 @@ exported = false
 [package.metadata.android.signing.release]
 path = "release.keystore"
 keystore_password = "@-:8e3zWE;z-zQmC._as\\Ei"
+
+[package.metadata.android.application]
+icon = "@mipmap/logo"

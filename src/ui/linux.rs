@@ -30,7 +30,7 @@ impl super::OsUi for Ui {
         let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
         let pass_root_buf = &mut ui_state.partial_pass_root;
 
-        if self.text_edit_singleline(pass_root_buf).lost_focus() {
+        if self.text_edit_singleline(pass_root_buf).lost_focus() && !pass_root_buf.is_empty() {
             let new_pass_root = pass_root_buf.clone();
             settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
                 Ok(new_pass_root)
@@ -51,7 +51,9 @@ impl super::OsUi for Ui {
         // (2) digest lost focus + there's password in settings
         let settings = SETTINGS.lock().expect("settings are poisoned!");
         ((passphrase_update_issued && !digest_buf.is_empty())
-            || (secret_key_setting.lost_focus() && settings.gnupg_passphrase_set()))
+            || (secret_key_setting.lost_focus()
+                && !digest_buf.is_empty()
+                && settings.gnupg_passphrase_set()))
         .then(|| Box::new(read_secret_key) as GnuPGSecretKeyProvider)
     }
 }
