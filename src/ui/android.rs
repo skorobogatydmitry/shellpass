@@ -39,13 +39,14 @@ impl super::OsUi for Ui {
     }
 
     fn pass_root_setting(&mut self) {
+        self.label("pass repository root");
         let settings = SETTINGS.lock().expect("settings are poisoned!");
         let pass_root_hint = match settings.pass_root() {
             Some(pass_root) => format!(
-                "current folder\n{}",
+                "is set to '{}'",
                 uri_path(&pass_root).expect("unable to decode root's path")
             ),
-            None => "pass root is not set".to_string(),
+            None => "is not set".to_string(),
         };
         drop(settings);
         self.label(pass_root_hint);

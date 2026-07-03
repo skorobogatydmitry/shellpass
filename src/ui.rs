@@ -122,7 +122,7 @@ fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
             .password(true),
     );
 
-    if passphrase_edit.lost_focus() {
+    if passphrase_edit.lost_focus() && !passphrase_ui_buf.is_empty() {
         let mut pp = String::new();
         std::mem::swap(passphrase_ui_buf, &mut pp);
         settings::send_update_request(SettingsUpdateReq::GnuPGPassphrase(pp));
