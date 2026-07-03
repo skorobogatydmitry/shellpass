@@ -90,7 +90,7 @@ pub(crate) fn initialize() {
                                         SETTINGS.lock().expect("settings are poisoned!");
                                     let mut repo =
                                         REPOSITORY.lock().expect("repository is poisoned!");
-                                    repo.refresh_entries(new_pass_root.as_str());
+                                    repo.fetch_entries_for(new_pass_root.as_str());
                                     drop(repo);
                                     // let the finder refresh matches
                                     let finder = FINDER.lock().expect("finder is poisoned!");

@@ -165,10 +165,22 @@ fn notifications_bar(ui: &mut Ui) {
                     });
             }
             None => {
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                ui.label(match repository.entries_count() {
-                    0 => "no entries found, check settings".to_string(),
-                    count => format!("{} entries in your pass", count),
+                ui.horizontal(|ui| {
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        let mut repository = REPOSITORY.lock().expect("repository is poisoned!");
+                        if ui
+                            .button(egui::include_image!("../assets/refresh.png"))
+                            .clicked()
+                        {
+                            repository.refresh_entries();
+                        }
+                        ui.centered_and_justified(|ui| {
+                            ui.label(match repository.entries_count() {
+                                0 => "no entries found, check settings".to_string(),
+                                count => format!("{} entries in your pass", count),
+                            });
+                        });
+                    });
                 });
             }
         }
