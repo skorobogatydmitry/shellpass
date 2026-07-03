@@ -181,6 +181,8 @@ pub(crate) fn main(ui: &mut Ui) {
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
             ui.top_padding();
+            // notifications / status info
+            notifications_bar(ui);
             // search bar + settings button
             let search_bar_and_settins = ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -204,7 +206,6 @@ pub(crate) fn main(ui: &mut Ui) {
                     })
                 })
             });
-            notifications_bar(ui);
             search_bar_and_settins.inner.inner.inner
         })
         .inner;
