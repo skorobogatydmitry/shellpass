@@ -62,16 +62,48 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ScrollArea::vertical().auto_shrink(true).show(ui, |ui| {
-                ui.vertical_centered_justified(|ui| {
-                    ui.pass_root_setting();
-                    gnupg_settings(ui);
-                    ui.add(egui::Separator::default());
-                    if ui.button("reset settings").highlight().clicked() {
-                        settings::send_update_request(SettingsUpdateReq::Reset);
-                    }
+            ScrollArea::both()
+                .max_height(ui.ctx().content_rect().height() * 0.9)
+                .max_width(ui.ctx().content_rect().width() * 0.9)
+                .show(ui, |ui| {
+                    ui.vertical_centered_justified(|ui| {
+                        ui.pass_root_setting();
+                        gnupg_settings(ui);
+                        ui.add(egui::Separator::default());
+                        if ui.button("reset settings").highlight().clicked() {
+                            settings::send_update_request(SettingsUpdateReq::Reset);
+                        }
+                        ui.add(egui::Separator::default());
+                        {
+                            let current_zoom_factor = ui.memory(|m| m.options.zoom_factor);
+                            ui.label(format!("current zoom is {current_zoom_factor}"));
+                            StripBuilder::new(ui)
+                                .sizes(Size::remainder(), 2)
+                                .horizontal(|mut strip| {
+                                    strip.cell(|ui| {
+                                        if ui.button("-").clicked() && current_zoom_factor > 0.5 {
+                                            let new_zoom =
+                                                ((current_zoom_factor - 0.1) * 10.0).trunc() / 10.0;
+                                            ui.set_zoom_factor(new_zoom);
+                                            settings::send_update_request(
+                                                SettingsUpdateReq::ZoomFactor(new_zoom),
+                                            );
+                                        }
+                                    });
+                                    strip.cell(|ui| {
+                                        if ui.button("+").clicked() && current_zoom_factor < 3.0 {
+                                            let new_zoom =
+                                                ((current_zoom_factor + 0.1) * 10.0).trunc() / 10.0;
+                                            ui.set_zoom_factor(new_zoom);
+                                            settings::send_update_request(
+                                                SettingsUpdateReq::ZoomFactor(new_zoom),
+                                            );
+                                        }
+                                    });
+                                });
+                        }
+                    });
                 });
-            });
         })
 }
 
@@ -188,7 +220,6 @@ fn notifications_bar(ui: &mut Ui) {
 }
 
 pub(crate) fn main(ui: &mut Ui) {
-    ui.set_zoom_factor(1.5);
     let (search_bar, settings_opened) = Panel::top("search and notifications")
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(3)))
         .show_inside(ui, |ui| {
