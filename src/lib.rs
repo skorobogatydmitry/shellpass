@@ -6,7 +6,7 @@ use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::finder::FINDER;
+use crate::{finder::FINDER, settings::SETTINGS};
 
 pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
@@ -20,9 +20,7 @@ pub struct App;
 
 impl App {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        _cc: &CreationContext,
-    ) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
+    pub fn new(cc: &CreationContext) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
         notifications::initialize();
         {
             let mut finder = FINDER.lock().expect("finder is poisoned!");
@@ -30,6 +28,9 @@ impl App {
         }
 
         settings::initialize();
+
+        cc.egui_ctx
+            .set_zoom_factor(SETTINGS.lock().expect("settings are poisoned!").zoom_factor);
         Ok(Box::new(Self {}))
     }
 }

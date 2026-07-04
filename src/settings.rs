@@ -24,9 +24,13 @@ use crate::{
     pass::{REPOSITORY, RepositoryAccessor, clear_string},
 };
 
+const DEFAULT_ZOOM_FACTOR: f32 = 1.7;
 static STORED_SETTINGS_FILE_NAME: &str = concat!(env!("CARGO_PKG_NAME"), "-settings.bson");
-
 static SETTINGS_UPDATE_EVENT_QUEUE: OnceLock<Sender<SettingsUpdateReq>> = OnceLock::new();
+
+fn default_zoom_factor() -> f32 {
+    DEFAULT_ZOOM_FACTOR
+}
 
 pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     Mutex::new(match Settings::try_load() {
@@ -48,6 +52,7 @@ pub enum SettingsUpdateReq {
     PassRoot(Box<dyn FnOnce() -> anyhow::Result<String> + Send>),
     GnuPGPassphrase(String),
     GnuPGSecretKey(GnuPGSecretKeyProvider),
+    ZoomFactor(f32),
     Reset,
 }
 
@@ -55,7 +60,7 @@ pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecre
 
 /// initializes settings update events queue and
 /// spawns a thread to do heavy-lifting settings updates
-pub(crate) fn initialize() {
+pub fn initialize() {
     let (tx, rx) = mpsc::channel();
 
     let settings = SETTINGS.lock().expect("settings are poisoned!");
@@ -151,6 +156,13 @@ pub(crate) fn initialize() {
                             // flush the saved settings
                             settings_updated = true;
                         }
+                        SettingsUpdateReq::ZoomFactor(new_zoom) => {
+                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
+                            if settings.zoom_factor != new_zoom {
+                                settings.zoom_factor = new_zoom;
+                                settings_updated = true;
+                            }
+                        }
                     }
                     if settings_updated {
                         let settings = SETTINGS.lock().expect("settings are poisoned!");
@@ -169,7 +181,7 @@ pub(crate) fn initialize() {
 }
 
 /// public API to send update requests to settings
-pub(crate) fn send_update_request(request: SettingsUpdateReq) {
+pub fn send_update_request(request: SettingsUpdateReq) {
     let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE
         .get()
         .expect("settings update queue is not ready");
@@ -182,6 +194,8 @@ pub(crate) fn send_update_request(request: SettingsUpdateReq) {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     pass_root: Option<String>,
+    #[serde(default = "default_zoom_factor")]
+    pub zoom_factor: f32,
     #[serde(with = "with_bytes")]
     gnupg_secret_key: Option<SignedSecretKey>,
     #[serde(skip)] // don't store password longer that the app's lifetime
@@ -199,6 +213,7 @@ impl Settings {
             } else {
                 None
             },
+            zoom_factor: DEFAULT_ZOOM_FACTOR,
             gnupg_secret_key: None,
             gnupg_passphrase: None,
         }
@@ -260,28 +275,28 @@ impl Settings {
         Ok(Self::settings_store_dir()?.join(STORED_SETTINGS_FILE_NAME))
     }
 
-    pub(crate) fn pass_root(&self) -> Option<String> {
+    pub fn pass_root(&self) -> Option<String> {
         self.pass_root.clone()
     }
 
     /// returns currect secret wrapped
-    pub(crate) fn get_gnupg_secret(&self) -> Option<GnuPGSecret<'_>> {
+    pub fn get_gnupg_secret(&self) -> Option<GnuPGSecret<'_>> {
         Some(GnuPGSecret {
             secret_key: self.gnupg_secret_key.as_ref()?,
             passphrase: Password::from(self.gnupg_passphrase.as_ref()?.clone()),
         })
     }
 
-    pub(crate) fn gnupg_passphrase_set(&self) -> bool {
+    pub fn gnupg_passphrase_set(&self) -> bool {
         self.gnupg_passphrase.is_some()
     }
 
     #[allow(dead_code)] // android only
-    pub(crate) fn gnupg_passphrase(&self) -> Option<&str> {
+    pub fn gnupg_passphrase(&self) -> Option<&str> {
         self.gnupg_passphrase.as_deref()
     }
 
-    pub(crate) fn gnupg_secret_key_digest(&self) -> Option<String> {
+    pub fn gnupg_secret_key_digest(&self) -> Option<String> {
         self.gnupg_secret_key
             .as_ref()
             .map(|k| k.primary_key.fingerprint().to_string())
@@ -289,7 +304,7 @@ impl Settings {
 }
 
 /// struct to store filled secrets and form TheRing
-pub(crate) struct GnuPGSecret<'a> {
+pub struct GnuPGSecret<'a> {
     pub secret_key: &'a SignedSecretKey,
     pub passphrase: Password,
 }

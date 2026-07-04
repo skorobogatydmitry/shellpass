@@ -104,7 +104,6 @@ keytool -genkeypair -v \
 - TODOs in the code
 - Reset password after 15 mins, allowing to keep application running safely for a long time
 - Make a safe PassEntry prefix strip
-- Make interface scale factor configurable
 - Make a housekeeper to control threads spawning and shutdown
 - Show pass entries as a tree
 - Resize interface when keyboard appears/disappears on android
