@@ -91,8 +91,6 @@ pub fn initialize() {
                         SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
                             match new_pass_root_provider() {
                                 Ok(new_pass_root) => {
-                                    let mut settings =
-                                        SETTINGS.lock().expect("settings are poisoned!");
                                     let mut repo =
                                         REPOSITORY.lock().expect("repository is poisoned!");
                                     repo.fetch_entries_for(new_pass_root.as_str());
@@ -100,6 +98,8 @@ pub fn initialize() {
                                     // let the finder refresh matches
                                     let finder = FINDER.lock().expect("finder is poisoned!");
                                     finder.change_fence.notify_one();
+                                    let mut settings =
+                                        SETTINGS.lock().expect("settings are poisoned!");
                                     settings.pass_root.replace(new_pass_root);
                                     settings_updated = true;
                                 }
