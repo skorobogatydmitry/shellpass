@@ -19,9 +19,9 @@ use pgp::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    finder::FINDER,
+    finder::Finder,
     notifications::{self, Kind, Message},
-    pass::{REPOSITORY, RepositoryAccessor, clear_string},
+    pass::{PassRepository, RepositoryAccessor, clear_string},
 };
 
 const DEFAULT_ZOOM_FACTOR: f32 = 1.7;
@@ -93,13 +93,10 @@ pub fn initialize() {
                                 Ok(new_pass_root) => {
                                     let mut settings =
                                         SETTINGS.lock().expect("settings are poisoned!");
-                                    let mut repo =
-                                        REPOSITORY.lock().expect("repository is poisoned!");
-                                    repo.fetch_entries_for(new_pass_root.as_str());
-                                    drop(repo);
+
+                                    PassRepository::fetch_entries_for(new_pass_root.as_str());
                                     // let the finder refresh matches
-                                    let finder = FINDER.lock().expect("finder is poisoned!");
-                                    finder.change_fence.notify_one();
+                                    Finder::notify();
                                     settings.pass_root.replace(new_pass_root);
                                     settings_updated = true;
                                 }
@@ -147,11 +144,8 @@ pub fn initialize() {
                             }
                             settings.gnupg_secret_key = None;
                             settings.pass_root = None;
-                            let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
-                            repo.clear();
-                            drop(repo);
-                            let finder = FINDER.lock().expect("finder is poisoned!");
-                            finder.change_fence.notify_one();
+                            PassRepository::reset();
+                            Finder::notify();
 
                             // flush the saved settings
                             settings_updated = true;

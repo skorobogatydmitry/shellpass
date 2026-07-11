@@ -8,6 +8,7 @@ use jni::{
 use ndk_context::android_context;
 
 use crate::{
+    Singleton,
     android_interface::{ActivityClass, get_class, uri_path},
     notifications::{self, Message},
 };
@@ -15,18 +16,20 @@ use crate::{
 use super::PassEntry as _PassEntry;
 
 impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
-    fn entries_count(&self) -> usize {
-        self.entries.len()
+    fn entries_count() -> usize {
+        Self::get().entries.len()
     }
 
-    fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {
-        self.entries
+    fn get_by_pattern(pattern: &str) -> Vec<PassEntry> {
+        Self::get()
+            .entries
             .iter()
             .filter(|e| e.contains(pattern))
+            .cloned()
             .collect()
     }
 
-    fn fetch_entries_for(&mut self, pass_root: &str) {
+    fn fetch_entries_for(pass_root: &str) {
         match jni_min_helper::jni_with_env(|env| {
             let ctx =
                 unsafe { JObject::from_raw(env, android_context().context() as jni::sys::jobject) };
@@ -55,15 +58,17 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
             Ok(gpg_files)
         }) {
             Ok(gpg_files) => {
+                let mut repo = Self::get();
                 // TODO: catch and show all such errors to the user
-                self.entries = gpg_files
+                repo.entries = gpg_files
                     .into_iter()
                     .map(|url| PassEntry::try_from((pass_root, url)).expect("unable to make entry"))
                     .collect();
-                self.last_used_root = Some(pass_root.to_string());
+                repo.last_used_root = Some(pass_root.to_string());
+                drop(repo);
                 log::info!(
                     "{} entries for root {} found",
-                    self.entries_count(),
+                    Self::entries_count(),
                     pass_root
                 );
             }

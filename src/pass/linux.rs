@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::Singleton;
 use crate::notifications::{self, Message};
 
 use super::PassEntry as _PassEntry;
@@ -10,9 +11,9 @@ use anyhow::Context;
 use walkdir::WalkDir;
 
 impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
-    fn fetch_entries_for(&mut self, pass_root: &str) {
+    fn fetch_entries_for(pass_root: &str) {
         let pass_root_pb = PathBuf::from(pass_root);
-        self.entries = WalkDir::new(pass_root)
+        Self::get().entries = WalkDir::new(pass_root)
             .into_iter()
             .filter_map(|e| {
                 e.ok().and_then(|e| {
@@ -33,26 +34,28 @@ impl super::RepositoryAccessor<PassEntry> for super::PassRepository<PassEntry> {
                 })
             })
             .collect();
-        if self.entries.is_empty() {
+        if Self::entries_count() == 0 {
             // TODO: excavate & summarize all the errors
             notifications::push_message(Message::new(
                 format!("no entries found for {pass_root}"),
                 notifications::Kind::Warning,
             ));
         } else {
-            self.last_used_root = Some(pass_root.to_string());
+            Self::get().last_used_root = Some(pass_root.to_string());
         }
     }
 
-    fn get_by_pattern(&self, pattern: &str) -> Vec<&PassEntry> {
-        self.entries
+    fn get_by_pattern(pattern: &str) -> Vec<PassEntry> {
+        Self::get()
+            .entries
             .iter()
             .filter(|e| e.contains(pattern))
+            .cloned()
             .collect()
     }
 
-    fn entries_count(&self) -> usize {
-        self.entries.len()
+    fn entries_count() -> usize {
+        Self::get().entries.len()
     }
 }
 

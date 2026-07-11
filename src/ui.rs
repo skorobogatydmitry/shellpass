@@ -11,9 +11,10 @@ use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response,
 use egui_extras::{Size, StripBuilder};
 
 use crate::{
-    finder::FINDER,
+    Singleton,
+    finder::Finder,
     notifications::{self, Kind, Message},
-    pass::{PassEntryImpl, REPOSITORY, RepositoryAccessor, clear_string},
+    pass::{PassEntry, PassEntryImpl, PassRepository, RepositoryAccessor, clear_string},
     settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
 };
 
@@ -199,15 +200,14 @@ fn notifications_bar(ui: &mut Ui) {
             None => {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mut repository = REPOSITORY.lock().expect("repository is poisoned!");
                         if ui
                             .button(egui::include_image!("../assets/refresh.png"))
                             .clicked()
                         {
-                            repository.refresh_entries();
+                            PassRepository::refresh_entries();
                         }
                         ui.centered_and_justified(|ui| {
-                            ui.label(match repository.entries_count() {
+                            ui.label(match PassRepository::entries_count() {
                                 0 => "no entries found, check settings".to_string(),
                                 count => format!("{} entries in your pass", count),
                             });
@@ -233,17 +233,15 @@ pub(crate) fn main(ui: &mut Ui) {
                     let settings_button_resp = ui.button(image);
                     let settings_menu_resp = settings_menu(&settings_button_resp);
                     ui.centered_and_justified(|ui| {
-                        let mut finder = FINDER.lock().expect("finder is poisoned!");
                         let search_bar_resp = ui
                             .add(
-                                egui::TextEdit::singleline(&mut finder.pattern)
+                                egui::TextEdit::singleline(&mut Finder::get().pattern)
                                     .hint_text("start typing to search"),
                             )
                             .highlight();
                         if search_bar_resp.changed() {
-                            finder.change_fence.notify_one();
+                            Finder::notify();
                         }
-                        drop(finder);
 
                         (search_bar_resp, settings_menu_resp.is_some())
                     })
@@ -256,11 +254,8 @@ pub(crate) fn main(ui: &mut Ui) {
     // list of matching entries
     let mut passphrase_popup_present = false;
     CentralPanel::no_frame().show_inside(ui, |ui| {
-        let repository = REPOSITORY.lock().expect("repository is poisoned!");
-        let entries_count = repository.entries_count();
-        drop(repository);
-        if entries_count > 0 {
-            let finder = FINDER.lock().expect("finder is poisoned!");
+        if PassRepository::entries_count() > 0 {
+            let finder = Finder::get();
             match finder.last_match.len() {
                 0 => {
                     ui.label("no matching entries");
@@ -312,8 +307,7 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
         let gnupg_secret = settings.get_gnupg_secret();
         match gnupg_secret {
             Some(gnupg_secret) => {
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                match repository.retrieve(entry, gnupg_secret) {
+                match entry.retrieve(gnupg_secret) {
                     Ok(data) => {
                         let data = std::hint::black_box(data);
                         ui.to_clipboard(format!("{}:{}", data.0, data.1));

@@ -1,12 +1,15 @@
 use eframe::CreationContext;
-use std::error::Error;
+use std::{
+    error::Error,
+    sync::{LazyLock, Mutex, MutexGuard},
+};
 
 #[cfg(target_os = "android")]
 use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::FINDER, settings::SETTINGS};
+use crate::{finder::Finder, settings::SETTINGS};
 
 pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
@@ -23,8 +26,7 @@ impl App {
     pub fn new(cc: &CreationContext) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
         notifications::initialize();
         {
-            let mut finder = FINDER.lock().expect("finder is poisoned!");
-            finder.search_routine();
+            Finder::search_routine();
         }
 
         settings::initialize();
@@ -65,4 +67,12 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         }),
     )
     .expect("cannot run application")
+}
+
+trait Singleton: Sized + 'static {
+    fn storage() -> &'static LazyLock<Mutex<Self>>;
+
+    fn get() -> MutexGuard<'static, Self> {
+        Self::storage().lock().unwrap()
+    }
 }
