@@ -15,7 +15,7 @@ use crate::{
     finder::Finder,
     notifications::{self, Kind, Message},
     pass::{PassEntry, PassEntryImpl, PassRepository, RepositoryAccessor, clear_string},
-    settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
+    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
 };
 
 #[cfg(target_os = "android")]
@@ -114,8 +114,7 @@ fn gnupg_settings(ui: &mut Ui) {
 
     // secret key state
     {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        match settings.gnupg_secret_key_digest() {
+        match Settings::get().gnupg_secret_key_digest() {
             None => {
                 ui.label("no secret key loaded");
             }
@@ -139,13 +138,11 @@ fn gnupg_settings(ui: &mut Ui) {
 /// passphrase status & edit field
 /// returns whether an update request was issued
 fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
-    let settings = SETTINGS.lock().expect("settings are poisoned!");
-    ui.label(if settings.gnupg_passphrase_set() {
+    ui.label(if Settings::get().gnupg_passphrase_set() {
         "key passphrase is set"
     } else {
         "no passphrase set"
     });
-    drop(settings);
 
     let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
     let passphrase_ui_buf = &mut ui_state.partial_gnupg_passphrase;
@@ -283,9 +280,7 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
     let entry_button = ui.selectable_label(false, entry.to_string());
     let mut passphrase_popup_present = false;
     let passphrase_updated = {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        if !settings.gnupg_passphrase_set() {
-            drop(settings);
+        if !Settings::get().gnupg_passphrase_set() {
             let passphrase_updated = Popup::menu(&entry_button)
                 .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
                 .show(gnupg_passphrase_setting);
@@ -303,15 +298,12 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
     };
     // 2 cases: everything is configured and the popup's edit lost the focus (the user pressed Enter or so)
     if entry_button.clicked() || passphrase_updated {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        let gnupg_secret = settings.get_gnupg_secret();
-        match gnupg_secret {
+        match Settings::get().get_gnupg_secret() {
             Some(gnupg_secret) => {
                 match entry.retrieve(gnupg_secret) {
                     Ok(data) => {
                         let data = std::hint::black_box(data);
                         ui.to_clipboard(format!("{}:{}", data.0, data.1));
-                        // UNSAFE: we drain the content just after the loop => no need to be valid seq
                         clear_string(data.1);
                         notifications::push_message(Message::new(
                             "copied".to_string(),

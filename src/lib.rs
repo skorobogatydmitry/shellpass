@@ -9,7 +9,7 @@ use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::Finder, settings::SETTINGS};
+use crate::{finder::Finder, settings::Settings};
 
 pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
@@ -29,10 +29,9 @@ impl App {
             Finder::search_routine();
         }
 
-        settings::initialize();
+        Settings::initialize();
 
-        cc.egui_ctx
-            .set_zoom_factor(SETTINGS.lock().expect("settings are poisoned!").zoom_factor);
+        cc.egui_ctx.set_zoom_factor(Settings::get().zoom_factor);
         Ok(Box::new(Self {}))
     }
 }
