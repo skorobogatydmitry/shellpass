@@ -2,6 +2,9 @@
 #[cfg(target_os = "linux")]
 fn main() -> eframe::Result {
     env_logger::init();
+
+    shellpass::set_panic_handler();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_decorations(false)
