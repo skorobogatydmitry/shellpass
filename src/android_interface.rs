@@ -37,8 +37,7 @@ pub(crate) fn get_class<'a>(
     env: &mut Env<'a>,
     activity_class: ActivityClass,
 ) -> jni::errors::Result<JClass<'a>> {
-    let mut classes = CLASSES.lock().expect("classes cache is poisoned!");
-    match classes.entry(activity_class) {
+    match CLASSES.lock().unwrap().entry(activity_class) {
         std::collections::hash_map::Entry::Occupied(entry) => {
             let existing_class = entry.get().as_raw();
             // UNSAFE: casting raw pointer obtained from a global ref just above this line

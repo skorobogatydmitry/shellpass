@@ -7,7 +7,7 @@ use pgp::composed::{Deserializable, SignedSecretKey};
 use crate::{
     Singleton,
     settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
-    ui::UI_STATE,
+    ui::UiState,
 };
 
 impl super::OsUi for Ui {
@@ -26,8 +26,7 @@ impl super::OsUi for Ui {
             None => "is not set".to_string(),
         });
 
-        let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-        let pass_root_buf = &mut ui_state.partial_pass_root;
+        let pass_root_buf = &mut UiState::get().partial_pass_root;
 
         if self.text_edit_singleline(pass_root_buf).lost_focus() && !pass_root_buf.is_empty() {
             let new_pass_root = pass_root_buf.clone();
@@ -41,8 +40,7 @@ impl super::OsUi for Ui {
         &mut self,
         passphrase_update_issued: bool,
     ) -> Option<GnuPGSecretKeyProvider> {
-        let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-        let digest_buf = &mut ui_state.partial_gnupg_secret_key;
+        let digest_buf = &mut UiState::get().partial_gnupg_secret_key;
         let secret_key_setting =
             self.add(egui::TextEdit::singleline(digest_buf).hint_text("private key digest"));
         // the key is ready to load if
@@ -58,9 +56,7 @@ impl super::OsUi for Ui {
 
 /// secret key readed for linux by digest from UI
 fn read_secret_key() -> anyhow::Result<SignedSecretKey> {
-    let ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-    let digest = ui_state.partial_gnupg_secret_key.clone();
-    drop(ui_state);
+    let digest = UiState::get().partial_gnupg_secret_key.clone();
     let gpg_secret_key_export_cmd = std::process::Command::new("gpg")
         .args([
             "--pinentry-mode",

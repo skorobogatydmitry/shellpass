@@ -58,6 +58,12 @@ struct UiState {
     partial_gnupg_passphrase: String,
 }
 
+impl Singleton for UiState {
+    fn storage() -> &'static LazyLock<Mutex<Self>> {
+        &UI_STATE
+    }
+}
+
 /// menu with all the settings
 fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
     Popup::menu(button_resp)
@@ -144,8 +150,7 @@ fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
         "no passphrase set"
     });
 
-    let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-    let passphrase_ui_buf = &mut ui_state.partial_gnupg_passphrase;
+    let passphrase_ui_buf = &mut UiState::get().partial_gnupg_passphrase;
     let passphrase_edit = ui.add(
         egui::TextEdit::singleline(passphrase_ui_buf)
             .hint_text("passphrase for secret key")
