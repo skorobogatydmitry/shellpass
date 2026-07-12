@@ -19,9 +19,10 @@ use pgp::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    finder::FINDER,
+    Singleton,
+    finder::Finder,
     notifications::{self, Kind, Message},
-    pass::{REPOSITORY, RepositoryAccessor, clear_string},
+    pass::{PassRepository, RepositoryAccessor, clear_string},
 };
 
 const DEFAULT_ZOOM_FACTOR: f32 = 1.7;
@@ -32,7 +33,7 @@ fn default_zoom_factor() -> f32 {
     DEFAULT_ZOOM_FACTOR
 }
 
-pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
+static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     Mutex::new(match Settings::try_load() {
         Ok(stored_settings) => stored_settings,
         Err(e) => {
@@ -48,6 +49,13 @@ pub static SETTINGS: LazyLock<Mutex<Settings>> = LazyLock::new(|| {
     })
 });
 
+impl Singleton for Settings {
+    fn storage() -> &'static LazyLock<Mutex<Self>> {
+        &SETTINGS
+    }
+}
+
+/// runtime settings update request types
 pub enum SettingsUpdateReq {
     PassRoot(Box<dyn FnOnce() -> anyhow::Result<String> + Send>),
     GnuPGPassphrase(String),
@@ -57,128 +65,6 @@ pub enum SettingsUpdateReq {
 }
 
 pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecretKey> + Send>;
-
-/// initializes settings update events queue and
-/// spawns a thread to do heavy-lifting settings updates
-pub fn initialize() {
-    let (tx, rx) = mpsc::channel();
-
-    let settings = SETTINGS.lock().expect("settings are poisoned!");
-    if let Some(loaded_pass_root) = settings.pass_root.as_ref() {
-        let new_pass_root = loaded_pass_root.clone();
-        tx.send(SettingsUpdateReq::PassRoot(Box::new(|| Ok(new_pass_root))))
-            .expect("cannot send pass root initialization");
-    }
-
-    SETTINGS_UPDATE_EVENT_QUEUE
-        .set(tx)
-        .expect("settings update queue initialization failed");
-
-    thread::spawn(move || {
-        loop {
-            match rx.recv() {
-                Err(e) => {
-                    // TODO: crash the app
-                    notifications::push_message(Message::new(
-                        format!("settings update event channel is closed: {e:#}"),
-                        Kind::Error,
-                    ));
-                }
-
-                Ok(request) => {
-                    let mut settings_updated = false;
-                    match request {
-                        SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
-                            match new_pass_root_provider() {
-                                Ok(new_pass_root) => {
-                                    let mut repo =
-                                        REPOSITORY.lock().expect("repository is poisoned!");
-                                    repo.fetch_entries_for(new_pass_root.as_str());
-                                    drop(repo);
-                                    // let the finder refresh matches
-                                    let finder = FINDER.lock().expect("finder is poisoned!");
-                                    finder.change_fence.notify_one();
-                                    let mut settings =
-                                        SETTINGS.lock().expect("settings are poisoned!");
-                                    settings.pass_root.replace(new_pass_root);
-                                    settings_updated = true;
-                                }
-                                Err(e) => {
-                                    notifications::push_message(Message::new(
-                                        format!("cannot set new pass root: {e:#}"),
-                                        Kind::Error,
-                                    ));
-                                }
-                            }
-                        }
-                        SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
-                            // reset the whole passphrase to the new value
-                            // make sure we don't leak tails of strings - it's always zero-ed
-                            // TODO: disable optimization for the following code
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                            let pp = black_box(settings.gnupg_passphrase.replace(new_pp));
-                            drop(settings);
-                            if let Some(pp) = pp {
-                                clear_string(pp);
-                            }
-                            // there's no need to save settings here
-                        }
-                        SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => {
-                            match secret_key_provider() {
-                                Ok(key) => {
-                                    let mut settings =
-                                        SETTINGS.lock().expect("settings are poisoned!");
-                                    settings.gnupg_secret_key = Some(key);
-                                }
-                                Err(e) => {
-                                    notifications::push_message(Message::new(
-                                        format!("unable to read secret key file: {e:#}"),
-                                        Kind::Error,
-                                    ));
-                                }
-                            }
-                            settings_updated = true;
-                        }
-                        SettingsUpdateReq::Reset => {
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                            let old_pp = settings.gnupg_passphrase.take();
-                            if let Some(old_pp) = old_pp {
-                                clear_string(old_pp);
-                            }
-                            settings.gnupg_secret_key = None;
-                            settings.pass_root = None;
-                            let mut repo = REPOSITORY.lock().expect("repository is poisoned!");
-                            repo.clear();
-                            drop(repo);
-                            let finder = FINDER.lock().expect("finder is poisoned!");
-                            finder.change_fence.notify_one();
-
-                            // flush the saved settings
-                            settings_updated = true;
-                        }
-                        SettingsUpdateReq::ZoomFactor(new_zoom) => {
-                            let mut settings = SETTINGS.lock().expect("settings are poisoned!");
-                            if settings.zoom_factor != new_zoom {
-                                settings.zoom_factor = new_zoom;
-                                settings_updated = true;
-                            }
-                        }
-                    }
-                    if settings_updated {
-                        let settings = SETTINGS.lock().expect("settings are poisoned!");
-                        if let Err(e) = settings.try_save() {
-                            // decided not to crash, as it's not fatal and causes the user to re-enter settings on restart
-                            notifications::push_message(Message::new(
-                                format!("error on saving settings: {e:#}"),
-                                Kind::Error,
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
 
 /// public API to send update requests to settings
 pub fn send_update_request(request: SettingsUpdateReq) {
@@ -219,6 +105,115 @@ impl Settings {
         }
     }
 
+    /// initializes settings update events queue and
+    /// spawns a thread to do heavy-lifting settings updates
+    /// the thread keeps runtime state in-sync with settings by propagating new vaues to respecitve componets
+    pub fn initialize() {
+        let (tx, rx) = mpsc::channel();
+
+        if let Some(loaded_pass_root) = Settings::pass_root() {
+            tx.send(SettingsUpdateReq::PassRoot(Box::new(|| {
+                Ok(loaded_pass_root)
+            })))
+            .expect("cannot send pass root initialization");
+        }
+
+        SETTINGS_UPDATE_EVENT_QUEUE
+            .set(tx)
+            .expect("settings update queue initialization failed");
+
+        thread::spawn(move || {
+            loop {
+                match rx.recv() {
+                    Err(e) => {
+                        // TODO: crash the app
+                        notifications::push_message(Message::new(
+                            format!("settings update event channel is closed: {e:#}"),
+                            Kind::Error,
+                        ));
+                    }
+
+                    Ok(request) => {
+                        let mut settings_updated = false;
+                        match request {
+                            SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
+                                match new_pass_root_provider() {
+                                    Ok(new_pass_root) => {
+                                        PassRepository::fetch_entries_for(new_pass_root.as_str());
+                                        // let the finder refresh matches
+                                        Finder::notify();
+                                        Self::get().pass_root.replace(new_pass_root);
+                                        settings_updated = true;
+                                    }
+                                    Err(e) => {
+                                        notifications::push_message(Message::new(
+                                            format!("cannot set new pass root: {e:#}"),
+                                            Kind::Error,
+                                        ));
+                                    }
+                                }
+                            }
+                            SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
+                                // reset the whole passphrase to the new value
+                                // make sure we don't leak tails of strings - it's always zero-ed
+                                // TODO: disable optimization for the following code
+                                let pp = black_box(Self::get().gnupg_passphrase.replace(new_pp));
+                                if let Some(pp) = pp {
+                                    clear_string(pp);
+                                }
+                                // there's no need to save settings here
+                            }
+                            SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => {
+                                match secret_key_provider() {
+                                    Ok(key) => {
+                                        Self::get().gnupg_secret_key.replace(key);
+                                    }
+                                    Err(e) => {
+                                        notifications::push_message(Message::new(
+                                            format!("unable to read secret key file: {e:#}"),
+                                            Kind::Error,
+                                        ));
+                                    }
+                                }
+                                settings_updated = true;
+                            }
+                            SettingsUpdateReq::Reset => {
+                                {
+                                    let mut settings = Self::get();
+                                    let old_pp = settings.gnupg_passphrase.take();
+                                    if let Some(old_pp) = old_pp {
+                                        clear_string(old_pp);
+                                    }
+                                    settings.gnupg_secret_key = None;
+                                    settings.pass_root = None;
+                                }
+                                PassRepository::reset();
+                                Finder::notify();
+
+                                // flush the saved settings
+                                settings_updated = true;
+                            }
+                            SettingsUpdateReq::ZoomFactor(new_zoom) => {
+                                let mut settings = Self::get();
+                                if settings.zoom_factor != new_zoom {
+                                    settings.zoom_factor = new_zoom;
+                                    settings_updated = true;
+                                }
+                            }
+                        }
+                        if settings_updated && let Err(e) = Self::try_save() {
+                            // decided not to crash, as it's not fatal and causes the user to re-enter settings on restart
+                            notifications::push_message(Message::new(
+                                format!("error on saving settings: {e:#}"),
+                                Kind::Error,
+                            ));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     /// platform-specific folders to store settings
     #[cfg(target_os = "android")]
     fn settings_store_dir() -> anyhow::Result<PathBuf> {
@@ -257,13 +252,13 @@ impl Settings {
     }
 
     /// try to save settings
-    fn try_save(&self) -> anyhow::Result<()> {
+    fn try_save() -> anyhow::Result<()> {
         let storing_file_path = Self::storing_file_path()?;
         let mut settings_file =
             File::create(storing_file_path).context("unable to (re)create settings file")?;
         settings_file
             .write_all(
-                bson::serialize_to_vec(&self)
+                bson::serialize_to_vec(&*Self::get())
                     .context("error on convesion settings to bson")?
                     .as_slice(),
             )
@@ -275,8 +270,8 @@ impl Settings {
         Ok(Self::settings_store_dir()?.join(STORED_SETTINGS_FILE_NAME))
     }
 
-    pub fn pass_root(&self) -> Option<String> {
-        self.pass_root.clone()
+    pub fn pass_root() -> Option<String> {
+        Self::get().pass_root.clone()
     }
 
     /// returns currect secret wrapped
@@ -291,9 +286,12 @@ impl Settings {
         self.gnupg_passphrase.is_some()
     }
 
-    #[allow(dead_code)] // android only
-    pub fn gnupg_passphrase(&self) -> Option<&str> {
-        self.gnupg_passphrase.as_deref()
+    #[allow(dead_code)] // linux only
+    pub fn with_gnupg_passphrase(
+        &self,
+        payload: impl FnOnce(Option<&str>) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        payload(self.gnupg_passphrase.as_deref())
     }
 
     pub fn gnupg_secret_key_digest(&self) -> Option<String> {

@@ -4,15 +4,23 @@ use std::{
     thread,
 };
 
-use crate::pass::{PassEntry, PassEntryImpl, REPOSITORY, RepositoryAccessor};
+use crate::{
+    Singleton,
+    pass::{PassEntry, PassEntryImpl, PassRepository, RepositoryAccessor},
+};
 
-pub static FINDER: LazyLock<Mutex<Finder<PassEntryImpl>>> =
-    LazyLock::new(|| Mutex::new(Finder::new()));
+static FINDER: LazyLock<Mutex<Finder<PassEntryImpl>>> = LazyLock::new(|| Mutex::new(Finder::new()));
 
-pub(crate) struct Finder<U: PassEntry> {
-    pub(crate) pattern: String,
-    pub(crate) change_fence: Arc<Condvar>,
-    pub(crate) last_match: Vec<U>,
+impl Singleton for Finder<PassEntryImpl> {
+    fn storage() -> &'static LazyLock<Mutex<Self>> {
+        &FINDER
+    }
+}
+
+pub struct Finder<U: PassEntry> {
+    pub pattern: String,
+    pub last_match: Vec<U>,
+    change_fence: Arc<Condvar>,
 }
 
 impl Finder<PassEntryImpl> {
@@ -24,26 +32,23 @@ impl Finder<PassEntryImpl> {
         }
     }
 
-    pub(crate) fn search_routine(&mut self) {
-        let change_fence = Arc::clone(&self.change_fence);
+    pub fn search_routine() {
+        let change_fence = Arc::clone(&Finder::get().change_fence);
 
         thread::spawn(move || {
-            let mut finder = FINDER.lock().expect("pattern is poisoned!");
+            let mut finder = Finder::get();
             loop {
                 finder = change_fence.wait(finder).expect("pattern is poisoned!");
                 let last_seen_pattern = finder.pattern.as_str();
 
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                let new_items: Vec<PassEntryImpl> = repository
-                    .get_by_pattern(last_seen_pattern)
-                    .into_iter()
-                    .cloned()
-                    .collect();
-                drop(repository);
-
-                finder.last_match = new_items;
+                finder.last_match = PassRepository::get_by_pattern(last_seen_pattern);
                 info!("found matches: {}", finder.last_match.len());
             }
         });
+    }
+
+    /// let the finder know that it's time to search for matches
+    pub fn notify() {
+        Self::get().change_fence.notify_one()
     }
 }

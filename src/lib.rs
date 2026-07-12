@@ -1,12 +1,18 @@
 use eframe::CreationContext;
-use std::{error::Error, panic, process, thread, time::Duration};
+use std::{
+    error::Error,
+    panic, process,
+    sync::{LazyLock, Mutex, MutexGuard},
+    thread,
+    time::Duration,
+};
 
 #[cfg(target_os = "android")]
 use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::FINDER, notifications::Message, settings::SETTINGS};
+use crate::{finder::Finder, notifications::Message, settings::Settings};
 
 pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
@@ -23,14 +29,12 @@ impl App {
     pub fn new(cc: &CreationContext) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
         notifications::initialize();
         {
-            let mut finder = FINDER.lock().expect("finder is poisoned!");
-            finder.search_routine();
+            Finder::search_routine();
         }
 
-        settings::initialize();
+        Settings::initialize();
 
-        cc.egui_ctx
-            .set_zoom_factor(SETTINGS.lock().expect("settings are poisoned!").zoom_factor);
+        cc.egui_ctx.set_zoom_factor(Settings::get().zoom_factor);
         Ok(Box::new(Self {}))
     }
 }
@@ -67,6 +71,14 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         }),
     )
     .expect("cannot run application")
+}
+
+trait Singleton: Sized + 'static {
+    fn storage() -> &'static LazyLock<Mutex<Self>>;
+
+    fn get() -> MutexGuard<'static, Self> {
+        Self::storage().lock().unwrap()
+    }
 }
 
 /// sets panic handler to (1) exit the app if settigns or finder or any other non-main thread panics

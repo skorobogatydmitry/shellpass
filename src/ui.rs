@@ -11,10 +11,11 @@ use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response,
 use egui_extras::{Size, StripBuilder};
 
 use crate::{
-    finder::FINDER,
+    Singleton,
+    finder::Finder,
     notifications::{self, Kind, Message},
-    pass::{PassEntryImpl, REPOSITORY, RepositoryAccessor, clear_string},
-    settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
+    pass::{PassEntry, PassEntryImpl, PassRepository, RepositoryAccessor, clear_string},
+    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
 };
 
 #[cfg(target_os = "android")]
@@ -55,6 +56,12 @@ struct UiState {
     #[allow(dead_code)] // the buffer is only used on Linux
     partial_pass_root: String,
     partial_gnupg_passphrase: String,
+}
+
+impl Singleton for UiState {
+    fn storage() -> &'static LazyLock<Mutex<Self>> {
+        &UI_STATE
+    }
 }
 
 /// menu with all the settings
@@ -113,8 +120,7 @@ fn gnupg_settings(ui: &mut Ui) {
 
     // secret key state
     {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        match settings.gnupg_secret_key_digest() {
+        match Settings::get().gnupg_secret_key_digest() {
             None => {
                 ui.label("no secret key loaded");
             }
@@ -138,16 +144,13 @@ fn gnupg_settings(ui: &mut Ui) {
 /// passphrase status & edit field
 /// returns whether an update request was issued
 fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
-    let settings = SETTINGS.lock().expect("settings are poisoned!");
-    ui.label(if settings.gnupg_passphrase_set() {
+    ui.label(if Settings::get().gnupg_passphrase_set() {
         "key passphrase is set"
     } else {
         "no passphrase set"
     });
-    drop(settings);
 
-    let mut ui_state = UI_STATE.lock().expect("UI state is poisoned!");
-    let passphrase_ui_buf = &mut ui_state.partial_gnupg_passphrase;
+    let passphrase_ui_buf = &mut UiState::get().partial_gnupg_passphrase;
     let passphrase_edit = ui.add(
         egui::TextEdit::singleline(passphrase_ui_buf)
             .hint_text("passphrase for secret key")
@@ -199,15 +202,14 @@ fn notifications_bar(ui: &mut Ui) {
             None => {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mut repository = REPOSITORY.lock().expect("repository is poisoned!");
                         if ui
                             .button(egui::include_image!("../assets/refresh.png"))
                             .clicked()
                         {
-                            repository.refresh_entries();
+                            PassRepository::refresh_entries();
                         }
                         ui.centered_and_justified(|ui| {
-                            ui.label(match repository.entries_count() {
+                            ui.label(match PassRepository::entries_count() {
                                 0 => "no entries found, check settings".to_string(),
                                 count => format!("{} entries in your pass", count),
                             });
@@ -233,17 +235,15 @@ pub(crate) fn main(ui: &mut Ui) {
                     let settings_button_resp = ui.button(image);
                     let settings_menu_resp = settings_menu(&settings_button_resp);
                     ui.centered_and_justified(|ui| {
-                        let mut finder = FINDER.lock().expect("finder is poisoned!");
                         let search_bar_resp = ui
                             .add(
-                                egui::TextEdit::singleline(&mut finder.pattern)
+                                egui::TextEdit::singleline(&mut Finder::get().pattern)
                                     .hint_text("start typing to search"),
                             )
                             .highlight();
                         if search_bar_resp.changed() {
-                            finder.change_fence.notify_one();
+                            Finder::notify();
                         }
-                        drop(finder);
 
                         (search_bar_resp, settings_menu_resp.is_some())
                     })
@@ -256,11 +256,8 @@ pub(crate) fn main(ui: &mut Ui) {
     // list of matching entries
     let mut passphrase_popup_present = false;
     CentralPanel::no_frame().show_inside(ui, |ui| {
-        let repository = REPOSITORY.lock().expect("repository is poisoned!");
-        let entries_count = repository.entries_count();
-        drop(repository);
-        if entries_count > 0 {
-            let finder = FINDER.lock().expect("finder is poisoned!");
+        if PassRepository::entries_count() > 0 {
+            let finder = Finder::get();
             match finder.last_match.len() {
                 0 => {
                     ui.label("no matching entries");
@@ -288,9 +285,7 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
     let entry_button = ui.selectable_label(false, entry.to_string());
     let mut passphrase_popup_present = false;
     let passphrase_updated = {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        if !settings.gnupg_passphrase_set() {
-            drop(settings);
+        if !Settings::get().gnupg_passphrase_set() {
             let passphrase_updated = Popup::menu(&entry_button)
                 .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
                 .show(gnupg_passphrase_setting);
@@ -308,16 +303,12 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
     };
     // 2 cases: everything is configured and the popup's edit lost the focus (the user pressed Enter or so)
     if entry_button.clicked() || passphrase_updated {
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        let gnupg_secret = settings.get_gnupg_secret();
-        match gnupg_secret {
+        match Settings::get().get_gnupg_secret() {
             Some(gnupg_secret) => {
-                let repository = REPOSITORY.lock().expect("repository is poisoned!");
-                match repository.retrieve(entry, gnupg_secret) {
+                match entry.retrieve(gnupg_secret) {
                     Ok(data) => {
                         let data = std::hint::black_box(data);
                         ui.to_clipboard(format!("{}:{}", data.0, data.1));
-                        // UNSAFE: we drain the content just after the loop => no need to be valid seq
                         clear_string(data.1);
                         notifications::push_message(Message::new(
                             "copied".to_string(),

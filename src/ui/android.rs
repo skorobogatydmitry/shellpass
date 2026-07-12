@@ -18,7 +18,7 @@ use std::{
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
     notifications::{self, Message},
-    settings::{self, GnuPGSecretKeyProvider, SETTINGS, SettingsUpdateReq},
+    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
 };
 
 static DIR_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
@@ -33,22 +33,20 @@ impl super::OsUi for Ui {
     fn top_padding(&mut self) {
         self.add_space(38.0);
     }
-    /// some models have round bottom corners...
+    /// some device screens have round bottom corners...
     fn bottom_padding(&mut self) {
         self.add_space(20.0);
     }
 
     fn pass_root_setting(&mut self) {
         self.label("pass repository root");
-        let settings = SETTINGS.lock().expect("settings are poisoned!");
-        let pass_root_hint = match settings.pass_root() {
+        let pass_root_hint = match Settings::pass_root() {
             Some(pass_root) => format!(
                 "is set to '{}'",
                 uri_path(&pass_root).expect("unable to decode root's path")
             ),
             None => "is not set".to_string(),
         };
-        drop(settings);
         self.label(pass_root_hint);
 
         if self.button("pick a new folder").highlight().clicked() {
