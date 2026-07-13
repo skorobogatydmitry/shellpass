@@ -149,7 +149,7 @@ impl SettingsUpdateReq {
                 }
             }
         }
-        return false;
+        false
     }
 }
 
