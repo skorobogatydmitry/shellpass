@@ -62,6 +62,7 @@ pub enum SettingsUpdateReq {
     GnuPGSecretKey(GnuPGSecretKeyProvider),
     ZoomFactor(f32),
     Reset,
+    ResetPassPhrase,
 }
 
 pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecretKey> + Send>;
@@ -120,6 +121,13 @@ impl SettingsUpdateReq {
                     ));
                 }
             },
+            SettingsUpdateReq::ResetPassPhrase => {
+                Settings::get().reset_passphrase();
+                notifications::push_message(Message::new(
+                    "passphrase is reset".to_string(),
+                    Kind::Success,
+                ));
+            }
             SettingsUpdateReq::Reset => {
                 {
                     let mut settings = Settings::get();

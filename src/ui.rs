@@ -136,11 +136,18 @@ fn gnupg_settings(ui: &mut Ui) {
 /// passphrase status & edit field
 /// returns whether an update request was issued
 fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
-    ui.label(if Settings::get().gnupg_passphrase_set() {
-        "key passphrase is set"
+    if Settings::get().gnupg_passphrase_set() {
+        if ui
+            .button("key passphrase is set")
+            .highlight()
+            .on_hover_text("click to reset passphrase")
+            .clicked()
+        {
+            SettingsUpdateReq::ResetPassPhrase.send();
+        }
     } else {
-        "no passphrase set"
-    });
+        ui.label("no passphrase set");
+    }
 
     let passphrase_ui_buf = &mut UiState::get().partial_gnupg_passphrase;
     let passphrase_edit = ui.add(
@@ -198,6 +205,7 @@ fn notifications_bar(ui: &mut Ui) {
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .button(egui::include_image!("../assets/refresh.png"))
+                            .on_hover_text("refresh entries list")
                             .clicked()
                         {
                             PassRepository::refresh_entries();
@@ -226,7 +234,7 @@ pub(crate) fn main(ui: &mut Ui) {
             let search_bar_and_settins = ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let image = egui::include_image!("../assets/cog.png");
-                    let settings_button_resp = ui.button(image);
+                    let settings_button_resp = ui.button(image).on_hover_text("settings");
                     let settings_menu_resp = settings_menu(&settings_button_resp);
                     ui.centered_and_justified(|ui| {
                         let search_bar_resp = ui
