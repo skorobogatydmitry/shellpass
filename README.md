@@ -12,9 +12,9 @@ The app is designed to be read-only and needs to:
 
 Linux version imports your key from the local ring by its digest. The digest could be obtained with `gpg --list-secret-keys`.
 
-Android version imports secret key as file, which should be exported by the following command and copied over to Android device: `gpg --export-secret-keys DIGEST > my.key`. There's no need to keep the key file, as it's stored in settings.
+Android version imports secret key as file, which should be exported by the following command and copied over to Android device: `gpg --export-secret-keys DIGEST > my.key`. There's no need to keep the key file, as it's stored in the settings.
 
-The app persists settings by default, **excluding your password**, which should be entered on each start. The password is stored in memory as long as the application runs.
+The app persists settings by default, **excluding your password**, which should be entered on each start. The password is stored in memory for 10 minutes, so you can leave the application running.
 
 ## Development
 
@@ -102,8 +102,6 @@ keytool -genkeypair -v \
 > Opportunities to contribute and enhance the app 
 
 - TODOs in the code
-- Reset password after 15 mins, allowing to keep application running safely for a long time
 - Make a safe PassEntry prefix strip
-- Make a housekeeper to control threads spawning and shutdown
 - Show pass entries as a tree
 - Resize interface when keyboard appears/disappears on android

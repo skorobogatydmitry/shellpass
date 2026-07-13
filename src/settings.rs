@@ -123,10 +123,7 @@ impl SettingsUpdateReq {
             SettingsUpdateReq::Reset => {
                 {
                     let mut settings = Settings::get();
-                    let old_pp = settings.gnupg_passphrase.take();
-                    if let Some(old_pp) = old_pp {
-                        clear_string(old_pp);
-                    }
+                    settings.reset_passphrase();
                     settings.gnupg_secret_key = None;
                     settings.pass_root = None;
                 }
@@ -298,6 +295,14 @@ impl Settings {
         self.gnupg_secret_key
             .as_ref()
             .map(|k| k.primary_key.fingerprint().to_string())
+    }
+
+    // TODO: disallow optimizing out the method
+    pub fn reset_passphrase(&mut self) {
+        let old_pp = std::hint::black_box(self.gnupg_passphrase.take());
+        if let Some(old_pp) = old_pp {
+            clear_string(old_pp);
+        }
     }
 }
 
