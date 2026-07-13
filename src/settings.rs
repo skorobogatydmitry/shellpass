@@ -189,10 +189,11 @@ impl Settings {
         let (tx, rx) = mpsc::channel();
 
         if let Some(loaded_pass_root) = Settings::pass_root() {
-            tx.send(SettingsUpdateReq::PassRoot(Box::new(|| {
-                Ok(loaded_pass_root)
-            })))
-            .expect("cannot send pass root initialization");
+            notifications::push_message(
+                Message::new("refreshing entries".to_string(), Kind::Warning)
+                    .with_duration(Duration::from_secs(10)),
+            );
+            SettingsUpdateReq::PassRoot(Box::new(|| Ok(loaded_pass_root))).send();
         }
 
         SETTINGS_UPDATE_EVENT_QUEUE

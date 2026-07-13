@@ -18,7 +18,7 @@ use std::{
 use crate::{
     android_interface::{ActivityClass, get_class, uri_path},
     notifications::{self, Message},
-    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
+    settings::{GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
 };
 
 static DIR_PICKER_TX: OnceLock<SyncSender<anyhow::Result<String>>> = OnceLock::new();
@@ -56,7 +56,7 @@ impl super::OsUi for Ui {
                     notifications::Kind::Error,
                 ));
             }
-            settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
+            SettingsUpdateReq::PassRoot(Box::new(|| {
                 let dir_picked_rx = DIR_PICKER_RX
                     .get()
                     .expect("directory picker is not initialized");
@@ -64,7 +64,8 @@ impl super::OsUi for Ui {
                     .lock()
                     .expect("dir picker RX is poisoned!")
                     .recv_timeout(Duration::from_secs(90))? // let's assume that's enough to pick a folder
-            })));
+            }))
+            .send();
         }
     }
 

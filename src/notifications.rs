@@ -32,7 +32,7 @@ pub fn current_notification() -> Option<Notification> {
     // no notification or the current one expired
     if current_notification
         .as_ref()
-        .map(|cn| cn.expired())
+        .map(Notification::expired)
         .unwrap_or(true)
     {
         *current_notification = try_receive();
@@ -110,7 +110,7 @@ impl Display for Kind {
             "{}",
             match self {
                 Self::Error => "❗",
-                Self::Warning => "➡️",
+                Self::Warning => "➡",
                 Self::Success => "√",
             }
         )
