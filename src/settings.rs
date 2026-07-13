@@ -188,6 +188,10 @@ impl Settings {
     pub fn initialize() {
         let (tx, rx) = mpsc::channel();
 
+        SETTINGS_UPDATE_EVENT_QUEUE
+            .set(tx)
+            .expect("settings update queue initialization failed");
+
         if let Some(loaded_pass_root) = Settings::pass_root() {
             notifications::push_message(
                 Message::new("refreshing entries".to_string(), Kind::Warning)
@@ -195,10 +199,6 @@ impl Settings {
             );
             SettingsUpdateReq::PassRoot(Box::new(|| Ok(loaded_pass_root))).send();
         }
-
-        SETTINGS_UPDATE_EVENT_QUEUE
-            .set(tx)
-            .expect("settings update queue initialization failed");
 
         thread::spawn(move || {
             loop {
