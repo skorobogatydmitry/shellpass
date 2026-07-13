@@ -1,11 +1,7 @@
 //! UI-related salad of methods
 //! No functionality expected, just egui-s ladders
 
-use std::{
-    sync::{LazyLock, Mutex},
-    thread,
-    time::Duration,
-};
+use std::sync::{LazyLock, Mutex};
 
 use egui::{CentralPanel, Color32, InnerResponse, Layout, Panel, Popup, Response, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
@@ -15,7 +11,7 @@ use crate::{
     finder::Finder,
     notifications::{self, Kind, Message},
     pass::{PassEntry, PassEntryImpl, PassRepository, RepositoryAccessor, clear_string},
-    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
+    settings::{GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
 };
 
 #[cfg(target_os = "android")]
@@ -78,7 +74,7 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
                         gnupg_settings(ui);
                         ui.add(egui::Separator::default());
                         if ui.button("reset settings").highlight().clicked() {
-                            settings::send_update_request(SettingsUpdateReq::Reset);
+                            SettingsUpdateReq::Reset.send();
                         }
                         ui.add(egui::Separator::default());
                         {
@@ -92,9 +88,7 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
                                             let new_zoom =
                                                 ((current_zoom_factor - 0.1) * 10.0).trunc() / 10.0;
                                             ui.set_zoom_factor(new_zoom);
-                                            settings::send_update_request(
-                                                SettingsUpdateReq::ZoomFactor(new_zoom),
-                                            );
+                                            SettingsUpdateReq::ZoomFactor(new_zoom).send();
                                         }
                                     });
                                     strip.cell(|ui| {
@@ -102,9 +96,7 @@ fn settings_menu(button_resp: &Response) -> Option<InnerResponse<()>> {
                                             let new_zoom =
                                                 ((current_zoom_factor + 0.1) * 10.0).trunc() / 10.0;
                                             ui.set_zoom_factor(new_zoom);
-                                            settings::send_update_request(
-                                                SettingsUpdateReq::ZoomFactor(new_zoom),
-                                            );
+                                            SettingsUpdateReq::ZoomFactor(new_zoom).send();
                                         }
                                     });
                                 });
@@ -137,7 +129,7 @@ fn gnupg_settings(ui: &mut Ui) {
     // digest from the settings can't be used, as it can only be set by a the previous update request
     // so, even for passphrase change we rely on that the buffer has a digest to load
     if let Some(secret_key_provider) = secret_key_provider {
-        settings::send_update_request(SettingsUpdateReq::GnuPGSecretKey(secret_key_provider));
+        SettingsUpdateReq::GnuPGSecretKey(secret_key_provider).send();
     }
 }
 
@@ -160,7 +152,9 @@ fn gnupg_passphrase_setting(ui: &mut Ui) -> bool {
     if passphrase_edit.lost_focus() && !passphrase_ui_buf.is_empty() {
         let mut pp = String::new();
         std::mem::swap(passphrase_ui_buf, &mut pp);
-        settings::send_update_request(SettingsUpdateReq::GnuPGPassphrase(pp));
+        // one of the rare cases when setting gets applied synchroniously
+        // passphrase update is supposed to happen fast
+        SettingsUpdateReq::GnuPGPassphrase(pp).apply();
         true
     } else {
         false
@@ -290,13 +284,7 @@ fn retrieve_entry(ui: &mut Ui, entry: &PassEntryImpl) -> bool {
                 .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
                 .show(gnupg_passphrase_setting);
             passphrase_popup_present = passphrase_updated.is_some();
-            let passphrase_updated = passphrase_updated.is_some_and(|r| r.inner);
-            if passphrase_updated {
-                // settings update may happen slower
-                // TODO: support sync calls
-                thread::sleep(Duration::from_millis(50));
-            }
-            passphrase_updated
+            passphrase_updated.is_some_and(|r| r.inner)
         } else {
             false
         }
