@@ -62,18 +62,95 @@ pub enum SettingsUpdateReq {
     GnuPGSecretKey(GnuPGSecretKeyProvider),
     ZoomFactor(f32),
     Reset,
+    ResetPassPhrase,
 }
 
 pub type GnuPGSecretKeyProvider = Box<dyn FnOnce() -> anyhow::Result<SignedSecretKey> + Send>;
 
-/// public API to send update requests to settings
-pub fn send_update_request(request: SettingsUpdateReq) {
-    let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE
-        .get()
-        .expect("settings update queue is not ready");
-    settings_event_queue
-        .send(request)
-        .expect("error on sending settings update request");
+impl SettingsUpdateReq {
+    /// public API to send update requests to settings
+    pub fn send(self) {
+        let settings_event_queue = SETTINGS_UPDATE_EVENT_QUEUE
+            .get()
+            .expect("settings update queue is not ready");
+        settings_event_queue
+            .send(self)
+            .expect("error on sending settings update request");
+    }
+
+    // apply the request right away
+    // returns whether the setting was applied
+    pub fn apply(self) -> bool {
+        match self {
+            SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
+                match new_pass_root_provider() {
+                    Ok(new_pass_root) => {
+                        PassRepository::fetch_entries_for(new_pass_root.as_str());
+                        // let the finder refresh matches
+                        Finder::notify();
+                        Settings::get().pass_root.replace(new_pass_root);
+                        return true;
+                    }
+                    Err(e) => {
+                        notifications::push_message(Message::new(
+                            format!("cannot set new pass root: {e:#}"),
+                            Kind::Error,
+                        ));
+                    }
+                }
+            }
+            SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
+                // reset the whole passphrase to the new value
+                // make sure we don't leak tails of strings - it's always zero-ed
+                // TODO: disable optimization for the following code
+                let pp = black_box(Settings::get().gnupg_passphrase.replace(new_pp));
+                if let Some(pp) = pp {
+                    clear_string(pp);
+                }
+                // there's no need to save settings - passphrase is ephemeral
+            }
+            SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => match secret_key_provider() {
+                Ok(key) => {
+                    Settings::get().gnupg_secret_key.replace(key);
+                    return true;
+                }
+                Err(e) => {
+                    notifications::push_message(Message::new(
+                        format!("unable to read secret key file: {e:#}"),
+                        Kind::Error,
+                    ));
+                }
+            },
+            SettingsUpdateReq::ResetPassPhrase => {
+                Settings::get().reset_passphrase();
+                notifications::push_message(Message::new(
+                    "passphrase is reset".to_string(),
+                    Kind::Success,
+                ));
+            }
+            SettingsUpdateReq::Reset => {
+                {
+                    let mut settings = Settings::get();
+                    settings.reset_passphrase();
+                    settings.gnupg_secret_key = None;
+                    settings.pass_root = None;
+                }
+                PassRepository::reset();
+                Finder::notify();
+
+                // flush the saved settings
+                return true;
+            }
+            SettingsUpdateReq::ZoomFactor(new_zoom) => {
+                let mut settings = Settings::get();
+                if settings.zoom_factor != new_zoom {
+                    settings.zoom_factor = new_zoom;
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 /// tunable settings
@@ -90,7 +167,7 @@ pub struct Settings {
 
 impl Settings {
     fn new() -> Self {
-        // TODO: refactor-off platforsm-specific defaults
+        // TODO: refactor-off platform-specific defaults
         Self {
             pass_root: if cfg!(target_os = "linux") {
                 std::env::home_dir()
@@ -124,91 +201,19 @@ impl Settings {
 
         thread::spawn(move || {
             loop {
-                match rx.recv() {
-                    Err(e) => {
-                        // TODO: crash the app
-                        notifications::push_message(Message::new(
-                            format!("settings update event channel is closed: {e:#}"),
-                            Kind::Error,
-                        ));
-                    }
+                let request = rx
+                    .recv()
+                    .context("settings update event channel is closed")
+                    .unwrap();
 
-                    Ok(request) => {
-                        let mut settings_updated = false;
-                        match request {
-                            SettingsUpdateReq::PassRoot(new_pass_root_provider) => {
-                                match new_pass_root_provider() {
-                                    Ok(new_pass_root) => {
-                                        PassRepository::fetch_entries_for(new_pass_root.as_str());
-                                        // let the finder refresh matches
-                                        Finder::notify();
-                                        Self::get().pass_root.replace(new_pass_root);
-                                        settings_updated = true;
-                                    }
-                                    Err(e) => {
-                                        notifications::push_message(Message::new(
-                                            format!("cannot set new pass root: {e:#}"),
-                                            Kind::Error,
-                                        ));
-                                    }
-                                }
-                            }
-                            SettingsUpdateReq::GnuPGPassphrase(new_pp) => {
-                                // reset the whole passphrase to the new value
-                                // make sure we don't leak tails of strings - it's always zero-ed
-                                // TODO: disable optimization for the following code
-                                let pp = black_box(Self::get().gnupg_passphrase.replace(new_pp));
-                                if let Some(pp) = pp {
-                                    clear_string(pp);
-                                }
-                                // there's no need to save settings here
-                            }
-                            SettingsUpdateReq::GnuPGSecretKey(secret_key_provider) => {
-                                match secret_key_provider() {
-                                    Ok(key) => {
-                                        Self::get().gnupg_secret_key.replace(key);
-                                    }
-                                    Err(e) => {
-                                        notifications::push_message(Message::new(
-                                            format!("unable to read secret key file: {e:#}"),
-                                            Kind::Error,
-                                        ));
-                                    }
-                                }
-                                settings_updated = true;
-                            }
-                            SettingsUpdateReq::Reset => {
-                                {
-                                    let mut settings = Self::get();
-                                    let old_pp = settings.gnupg_passphrase.take();
-                                    if let Some(old_pp) = old_pp {
-                                        clear_string(old_pp);
-                                    }
-                                    settings.gnupg_secret_key = None;
-                                    settings.pass_root = None;
-                                }
-                                PassRepository::reset();
-                                Finder::notify();
+                let request_applied = request.apply();
 
-                                // flush the saved settings
-                                settings_updated = true;
-                            }
-                            SettingsUpdateReq::ZoomFactor(new_zoom) => {
-                                let mut settings = Self::get();
-                                if settings.zoom_factor != new_zoom {
-                                    settings.zoom_factor = new_zoom;
-                                    settings_updated = true;
-                                }
-                            }
-                        }
-                        if settings_updated && let Err(e) = Self::try_save() {
-                            // decided not to crash, as it's not fatal and causes the user to re-enter settings on restart
-                            notifications::push_message(Message::new(
-                                format!("error on saving settings: {e:#}"),
-                                Kind::Error,
-                            ));
-                        }
-                    }
+                if request_applied && let Err(e) = Self::try_save() {
+                    // decided not to crash, as it's not fatal and causes the user to re-enter settings on restart
+                    notifications::push_message(Message::new(
+                        format!("error on saving settings: {e:#}"),
+                        Kind::Error,
+                    ));
                 }
             }
         });
@@ -298,6 +303,14 @@ impl Settings {
         self.gnupg_secret_key
             .as_ref()
             .map(|k| k.primary_key.fingerprint().to_string())
+    }
+
+    // TODO: disallow optimizing out the method
+    pub fn reset_passphrase(&mut self) {
+        let old_pp = std::hint::black_box(self.gnupg_passphrase.take());
+        if let Some(old_pp) = old_pp {
+            clear_string(old_pp);
+        }
     }
 }
 

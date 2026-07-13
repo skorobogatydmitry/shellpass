@@ -6,7 +6,7 @@ use pgp::composed::{Deserializable, SignedSecretKey};
 
 use crate::{
     Singleton,
-    settings::{self, GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
+    settings::{GnuPGSecretKeyProvider, Settings, SettingsUpdateReq},
     ui::UiState,
 };
 
@@ -30,9 +30,7 @@ impl super::OsUi for Ui {
 
         if self.text_edit_singleline(pass_root_buf).lost_focus() && !pass_root_buf.is_empty() {
             let new_pass_root = pass_root_buf.clone();
-            settings::send_update_request(SettingsUpdateReq::PassRoot(Box::new(|| {
-                Ok(new_pass_root)
-            })));
+            SettingsUpdateReq::PassRoot(Box::new(|| Ok(new_pass_root))).send();
         }
     }
 

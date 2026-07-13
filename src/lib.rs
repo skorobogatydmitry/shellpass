@@ -12,11 +12,12 @@ use crate::ui::init_picker_activities;
 #[cfg(target_os = "android")]
 pub(crate) mod android_interface;
 
-use crate::{finder::Finder, notifications::Message, settings::Settings};
+use crate::{finder::Finder, housekeeper::Housekeeper, notifications::Message, settings::Settings};
 
 pub const NAME_VERSION: &str = concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) mod finder;
+pub(crate) mod housekeeper;
 pub(crate) mod notifications;
 pub(crate) mod pass;
 pub(crate) mod settings;
@@ -28,11 +29,9 @@ impl App {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(cc: &CreationContext) -> Result<Box<dyn eframe::App>, Box<dyn Error + Send + Sync>> {
         notifications::initialize();
-        {
-            Finder::search_routine();
-        }
-
+        Finder::initialize();
         Settings::initialize();
+        Housekeeper::initialize();
 
         cc.egui_ctx.set_zoom_factor(Settings::get().zoom_factor);
         Ok(Box::new(Self {}))

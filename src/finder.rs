@@ -32,7 +32,7 @@ impl Finder<PassEntryImpl> {
         }
     }
 
-    pub fn search_routine() {
+    pub fn initialize() {
         let change_fence = Arc::clone(&Finder::get().change_fence);
 
         thread::spawn(move || {
