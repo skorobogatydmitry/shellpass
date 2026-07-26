@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "master"
+      - "*/ci*"
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose --target x86_64-unknown-linux-gnu
+      - name: Lint
+        run: cargo clippy --target x86_64-unknown-linux-gnu -- -Dwarnings
+      - name: Run tests
+        run: cargo test --verbose --target x86_64-unknown-linux-gnu
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install target
+        run: rustup target add armv7-linux-androideabi aarch64-linux-android
+      - name: Lint
+        run: cargo clippy --target armv7-linux-androideabi -- -Dwarnings
+      - name: Build
+        uses: ./.github/actions/android-build

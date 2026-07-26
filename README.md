@@ -1,5 +1,7 @@
 # Simple read-only client for [pass](https://www.passwordstore.org/)
 
+[![CI](https://github.com/skorobogatydmitry/shellpass/actions/workflows/ci.yaml/badge.svg)](https://github.com/skorobogatydmitry/shellpass/actions/workflows/ci.yaml)
+
 Graphical application for Android and Linux to retrieve entries from pass repository.
 
 The idea for the app is to have a minimalistic interface with just a search bar and a list of matches.
@@ -37,12 +39,14 @@ Build environment requires some severe preparations.
 
 > First steps are from [this guide](https://github.com/skorobogatydmitry/egui/blob/sd/fill-android-pre-reqs/examples/hello_android/README.md#desktop-pre-requisites).
 
+> There's a [dockerfile replicating the steps for build](./images/android.dockerfile).
+
 1. Install targets for android - `rustup target add armv7-linux-androideabi aarch64-linux-android`
 2. Set environment variables (have to be set for `cargo apk2`):
   ```sh
   export ANDROID_HOME="$HOME/tools/android"
   export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
-  export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+  export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/36.0.0:${ANDROID_HOME}/cmdline-tools/bin"
   ```
 3. Install command line tools:
   ```sh
@@ -102,6 +106,8 @@ keytool -genkeypair -v \
 > Opportunities to contribute and enhance the app 
 
 - TODOs in the code
+- cache list of entries on Android
+- make 2 types of notifications - permanent (with ID and implicit timeout) and splashes (with explicit timeout)
 - Make a safe PassEntry prefix strip
 - Show pass entries as a tree
 - Resize interface when keyboard appears/disappears on android

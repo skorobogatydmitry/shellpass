@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags: ["*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build & publish artifacts for
+        required: true
+        type: string
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: Build
+        run: cargo build --target x86_64-unknown-linux-gnu --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: target/x86_64-unknown-linux-gnu/release/shellpass
+          if-no-files-found: error
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: Build
+        uses: ./.github/actions/android-build
+        with:
+          apk2-args: build --lib --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: target/release/apk/shellpass.apk
+          if-no-files-found: error
+
+  release:
+    needs:
+      - build-linux
+      - build-android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*
