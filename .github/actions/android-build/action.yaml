@@ -1,0 +1,14 @@
+name: cargo apk2
+description: run "cargo apk2" commands in container
+
+inputs:
+  apk2-args:
+    description: List of arguments
+    required: true
+    default: build --lib
+
+runs:
+  using: docker
+  image: images/android.dockerfile
+  env:
+    INPUT_APK2_ARGS: ${{ inputs.apk2-args }}

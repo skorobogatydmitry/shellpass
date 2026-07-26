@@ -37,6 +37,8 @@ Build environment requires some severe preparations.
 
 > First steps are from [this guide](https://github.com/skorobogatydmitry/egui/blob/sd/fill-android-pre-reqs/examples/hello_android/README.md#desktop-pre-requisites).
 
+> There's a [dockerfile replicating the steps for build](./images/android.dockerfile).
+
 1. Install targets for android - `rustup target add armv7-linux-androideabi aarch64-linux-android`
 2. Set environment variables (have to be set for `cargo apk2`):
   ```sh
