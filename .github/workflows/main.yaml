@@ -9,13 +9,15 @@ on:
     branches: [ "master" ]
 
 jobs:
-  linux:
+  ci-checks:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
-    - name: Lint
-      run: cargo clippy -- -Dwarnings
+      run: cargo build --verbose --target x86_64-unknown-linux-gnu
+    - name: Linux lint
+      run: cargo clippy --target x86_64-unknown-linux-gnu -- -Dwarnings
+    - name: Android lint
+      run: cargo clippy --target armv7-linux-androideabi -- -Dwarnings
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --target x86_64-unknown-linux-gnu
