@@ -102,6 +102,8 @@ keytool -genkeypair -v \
 > Opportunities to contribute and enhance the app 
 
 - TODOs in the code
+- cache list of entries on Android
+- make 2 types of notifications - permanent (with ID and implicit timeout) and splashes (with explicit timeout)
 - Make a safe PassEntry prefix strip
 - Show pass entries as a tree
 - Resize interface when keyboard appears/disappears on android
