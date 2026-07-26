@@ -21,4 +21,4 @@ RUN cargo install cargo-apk2
 # android SDK tools don't run otherwise
 RUN apk add gcompat bash
 
-ENTRYPOINT [ "/usr/local/cargo/bin/cargo", "apk2", "$INPUT_APK2_ARGS" ]
+ENTRYPOINT [ "/bin/bash", "-c" "/usr/local/cargo/bin/cargo apk2 ${INPUT_APK2_ARGS:-build --lib}" ]
