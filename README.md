@@ -1,5 +1,7 @@
 # Simple read-only client for [pass](https://www.passwordstore.org/)
 
+[![CI](https://github.com/skorobogatydmitry/shellpass/actions/workflows/ci.yaml/badge.svg)](https://github.com/skorobogatydmitry/shellpass/actions/workflows/ci.yaml)
+
 Graphical application for Android and Linux to retrieve entries from pass repository.
 
 The idea for the app is to have a minimalistic interface with just a search bar and a list of matches.
