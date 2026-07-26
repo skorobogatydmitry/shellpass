@@ -44,7 +44,7 @@ Build environment requires some severe preparations.
   ```sh
   export ANDROID_HOME="$HOME/tools/android"
   export ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
-  export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+  export PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/36.0.0:${ANDROID_HOME}/cmdline-tools/bin"
   ```
 3. Install command line tools:
   ```sh

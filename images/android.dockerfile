@@ -2,7 +2,7 @@ FROM rust:1-alpine
 
 ENV ANDROID_HOME="/opt/android"
 ENV ANDROID_NDK_ROOT="${ANDROID_HOME}/ndk/29.0.14206865"
-ENV PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/${BUILDTOOLS_VERSION}:${ANDROID_HOME}/cmdline-tools/bin"
+ENV PATH="$PATH:${ANDROID_NDK_ROOT}:${ANDROID_HOME}/build-tools/36.0.0:${ANDROID_HOME}/cmdline-tools/bin"
 
 RUN rustup target add armv7-linux-androideabi aarch64-linux-android
 
@@ -21,4 +21,4 @@ RUN cargo install cargo-apk2
 # android SDK tools don't run otherwise
 RUN apk add gcompat bash
 
-ENTRYPOINT [ "/bin/bash", "-c" "/usr/local/cargo/bin/cargo apk2 ${INPUT_APK2_ARGS:-build --lib}" ]
+ENTRYPOINT [ "/bin/bash", "-c", "/usr/local/cargo/bin/cargo apk2 ${INPUT_APK2_ARGS:-build --lib}" ]
