@@ -29,4 +29,4 @@ jobs:
       - name: Lint
         run: cargo clippy --target armv7-linux-androideabi -- -Dwarnings
       - name: Build
-        uses: .github/actions/android-build
+        uses: ./.github/actions/android-build
