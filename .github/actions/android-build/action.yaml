@@ -9,6 +9,6 @@ inputs:
 
 runs:
   using: docker
-  image: images/android.dockerfile
+  image: ../../../images/android.dockerfile
   env:
     INPUT_APK2_ARGS: ${{ inputs.apk2-args }}
