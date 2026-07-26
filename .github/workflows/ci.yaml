@@ -23,6 +23,7 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Lint
         run: cargo clippy --target armv7-linux-androideabi -- -Dwarnings
       - name: Build
